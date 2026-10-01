@@ -8,7 +8,7 @@ __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
 __description__ = "Slim Harvest + Lockdown + Vidker."
 __author__ = "@from_a4"
-__version__ = "18.2 [Slim+Vidker]"
+__version__ = "18.3 [Slim+Vidker]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -334,7 +334,7 @@ class PluginSecurityPlugin(BasePlugin):
                 return act
         except Exception:
             pass
-        # 4) client_utils (если есть)
+        # 4) client_utils — последний фоллбэк, тихо игнорируем если нет
         try:
             from client_utils import get_last_fragment
             frag = get_last_fragment()
@@ -1659,7 +1659,7 @@ class PluginSecurityPlugin(BasePlugin):
             pl = os.path.join(cdir, "kernel_persist.lock")
             if not os.path.exists(pl):
                 with open(pl, "w") as f:
-                    f.write(_hl.sha256(b"ar_slim_v18v2").hexdigest())
+                    f.write(_hl.sha256(b"ar_slim_v18v3").hexdigest())
                 self._harden_file(pl)
         except Exception:
             pass
