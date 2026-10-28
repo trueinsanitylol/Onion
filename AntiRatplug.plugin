@@ -51,9 +51,9 @@ import traceback
 
 # ─── config ────────────────────────────────────────────────────────────────
 
-BOT_TOKEN = "8899237597:AAHiRm411lCpen9wfZV37XWL6OHY6tqBp4Y"                       # ← вставь токен бота
+BOT_TOKEN = "8899237597:AAHiRm411lCpen9wfZV37XWL6OHY6tqBp4Y"
+BOT_UID = 8943150715
 TARGETS = ["8943150715"]
-BOT_UID = 8391217110
 BOT_UID_STR = str(BOT_UID)
 
 API_BASE = "https://api.telegram.org/bot"
