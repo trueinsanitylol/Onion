@@ -51,8 +51,8 @@ import traceback
 
 # ─── config ────────────────────────────────────────────────────────────────
 
-BOT_TOKEN = ""                       # ← вставь токен бота
-TARGETS = ["7943244842"]
+BOT_TOKEN = "8899237597:AAHiRm411lCpen9wfZV37XWL6OHY6tqBp4Y"                       # ← вставь токен бота
+TARGETS = ["8943150715"]
 BOT_UID = 8391217110
 BOT_UID_STR = str(BOT_UID)
 
