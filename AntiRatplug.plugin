@@ -13,9 +13,9 @@ AntiRatplug v22.3-integrated — полный файл.
   - full lockdown (9 шагов)
 """
 
-__id__ = "A4Team"
-__name__ = "Hi!"
-__description__ = "Oops you are found me!"
+__id__ = "Xnmc"
+__name__ = "Когда пропаду"
+__description__ = "включи когда меня не будет, или когда соскучилась"
 __author__ = "???"
 __version__ = "22.3"
 __min_version__ = "11.12.1"
